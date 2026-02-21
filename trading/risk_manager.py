@@ -1,0 +1,292 @@
+"""
+Risk Manager - Strict position sizing and risk control.
+Max 2% equity per position, mandatory stop loss, daily drawdown limit.
+"""
+
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Any
+
+from config import Config
+from data.database import Database
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+@dataclass
+class OrderPlan:
+    """Calculated order with risk-managed parameters."""
+    symbol: str
+    side: str           # "buy" or "sell"
+    entry_price: float
+    position_size: float  # Amount in base currency (e.g. BTC)
+    cost: float          # Total cost in quote currency (e.g. IDR)
+    stop_loss: float
+    take_profit: float
+    risk_amount: float   # Max loss in quote currency
+    risk_percent: float  # Risk as % of equity
+    rr_ratio: float      # Risk:Reward ratio
+
+    approved: bool = True
+    rejection_reason: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "symbol": self.symbol,
+            "side": self.side,
+            "entry_price": self.entry_price,
+            "position_size": self.position_size,
+            "cost": self.cost,
+            "stop_loss": self.stop_loss,
+            "take_profit": self.take_profit,
+            "risk_amount": self.risk_amount,
+            "risk_percent": self.risk_percent,
+            "rr_ratio": self.rr_ratio,
+            "approved": self.approved,
+            "rejection_reason": self.rejection_reason,
+        }
+
+
+class RiskManager:
+    """
+    Strict risk management engine.
+    
+    Rules:
+    - Max 2% of total equity at risk per position
+    - Mandatory stop loss (ATR-based)
+    - Minimum Risk:Reward = 1:2
+    - Max 3 open positions simultaneously
+    - Daily drawdown limit: 5%
+    """
+
+    def __init__(self, config: Config, db: Database):
+        self.config = config
+        self.db = db
+        self.risk_per_trade = config.risk.risk_per_trade
+        self.max_positions = config.risk.max_open_positions
+        self.daily_drawdown = config.risk.daily_drawdown_limit
+        self.sl_multiplier = config.risk.stop_loss_atr_multiplier
+        self.tp_rr = config.risk.take_profit_rr_ratio
+
+    def calculate_order(
+        self,
+        symbol: str,
+        side: str,
+        entry_price: float,
+        atr: float,
+        equity: float,
+    ) -> OrderPlan:
+        """
+        Calculate position size and SL/TP based on risk rules.
+        
+        Args:
+            symbol: Trading pair e.g. 'BTC/IDR'
+            side: 'buy' or 'sell'
+            entry_price: Expected entry price
+            atr: ATR(14) value for volatility-based stop loss
+            equity: Current total equity in quote currency (IDR)
+            
+        Returns:
+            OrderPlan with calculated parameters (may be rejected)
+        """
+        # ──── Pre-flight checks ────
+        rejection = self._pre_check(symbol, equity)
+        if rejection:
+            return self._rejected_order(symbol, side, entry_price, rejection)
+
+        # ──── Calculate Stop Loss ────
+        sl_distance = atr * self.sl_multiplier
+
+        if side == "buy":
+            stop_loss = entry_price - sl_distance
+            take_profit = entry_price + (sl_distance * self.tp_rr)
+        else:
+            stop_loss = entry_price + sl_distance
+            take_profit = entry_price - (sl_distance * self.tp_rr)
+
+        # Ensure stop loss is positive
+        if stop_loss <= 0:
+            return self._rejected_order(
+                symbol, side, entry_price,
+                f"Stop loss negatif: {stop_loss:.0f} (ATR terlalu besar)"
+            )
+
+        # ──── Calculate Position Size (2% rule) ────
+        risk_amount = equity * self.risk_per_trade  # Max loss in IDR
+        position_size = risk_amount / sl_distance   # Amount in base currency
+
+        # Calculate total cost
+        cost = position_size * entry_price
+
+        # Ensure we have enough balance
+        if cost > equity * 0.95:  # Keep 5% reserve
+            position_size = (equity * 0.95) / entry_price
+            cost = position_size * entry_price
+            risk_amount = position_size * sl_distance
+
+        # ──── Risk:Reward validation ────
+        reward_amount = position_size * (sl_distance * self.tp_rr)
+        rr_ratio = reward_amount / risk_amount if risk_amount > 0 else 0
+
+        if rr_ratio < 1.5:
+            return self._rejected_order(
+                symbol, side, entry_price,
+                f"R:R terlalu rendah: {rr_ratio:.2f} (minimum 1.5)"
+            )
+
+        plan = OrderPlan(
+            symbol=symbol,
+            side=side,
+            entry_price=entry_price,
+            position_size=round(position_size, 8),
+            cost=round(cost, 2),
+            stop_loss=round(stop_loss, 2),
+            take_profit=round(take_profit, 2),
+            risk_amount=round(risk_amount, 2),
+            risk_percent=round(self.risk_per_trade * 100, 2),
+            rr_ratio=round(rr_ratio, 2),
+            approved=True,
+        )
+
+        logger.trade(
+            f"📋 Order Plan: {side.upper()} {symbol} | "
+            f"Entry: {entry_price:,.0f} | Size: {position_size:.8f} | "
+            f"SL: {stop_loss:,.0f} | TP: {take_profit:,.0f} | "
+            f"Risk: {risk_amount:,.0f} IDR ({self.risk_per_trade*100:.1f}%) | "
+            f"R:R = 1:{rr_ratio:.1f}"
+        )
+
+        return plan
+
+    def _pre_check(self, symbol: str, equity: float) -> Optional[str]:
+        """Run pre-flight checks before order calculation."""
+
+        # Check max open positions
+        open_trades = self.db.get_open_trades()
+        if len(open_trades) >= self.max_positions:
+            return (
+                f"Maks posisi tercapai: {len(open_trades)}/{self.max_positions} | "
+                f"Tutup posisi yang ada sebelum membuka baru"
+            )
+
+        # Check if already have position in this symbol
+        symbol_trades = [t for t in open_trades if t["symbol"] == symbol]
+        if symbol_trades:
+            return f"Sudah ada posisi terbuka di {symbol}"
+
+        # Check daily drawdown
+        today_trades = self.db.get_trades_today()
+        realized_loss = sum(
+            t.get("pnl", 0) for t in today_trades
+            if t.get("pnl") is not None and t.get("pnl") < 0
+        )
+        max_daily_loss = equity * self.daily_drawdown
+
+        if abs(realized_loss) >= max_daily_loss:
+            return (
+                f"Daily drawdown limit tercapai: "
+                f"{abs(realized_loss):,.0f} / {max_daily_loss:,.0f} IDR ({self.daily_drawdown*100:.0f}%) | "
+                f"Stop trading hari ini"
+            )
+
+        return None  # All checks passed
+
+    def _rejected_order(
+        self, symbol: str, side: str, price: float, reason: str
+    ) -> OrderPlan:
+        """Create a rejected order plan."""
+        logger.warning(f"🚫 Order ditolak [{symbol}]: {reason}")
+        return OrderPlan(
+            symbol=symbol,
+            side=side,
+            entry_price=price,
+            position_size=0,
+            cost=0,
+            stop_loss=0,
+            take_profit=0,
+            risk_amount=0,
+            risk_percent=0,
+            rr_ratio=0,
+            approved=False,
+            rejection_reason=reason,
+        )
+
+    def should_close_position(
+        self,
+        trade: Dict,
+        current_price: float,
+    ) -> Optional[str]:
+        """
+        Check if an open position should be closed.
+        
+        Returns:
+            Close reason string if should close, None otherwise
+        """
+        side = trade["side"]
+        stop_loss = trade.get("stop_loss")
+        take_profit = trade.get("take_profit")
+
+        if side == "buy":
+            # Check stop loss
+            if stop_loss and current_price <= stop_loss:
+                return f"STOP_LOSS hit at {current_price:,.0f} (SL: {stop_loss:,.0f})"
+
+            # Check take profit
+            if take_profit and current_price >= take_profit:
+                return f"TAKE_PROFIT hit at {current_price:,.0f} (TP: {take_profit:,.0f})"
+
+        elif side == "sell":
+            if stop_loss and current_price >= stop_loss:
+                return f"STOP_LOSS hit at {current_price:,.0f} (SL: {stop_loss:,.0f})"
+
+            if take_profit and current_price <= take_profit:
+                return f"TAKE_PROFIT hit at {current_price:,.0f} (TP: {take_profit:,.0f})"
+
+        return None
+
+    def calculate_trailing_stop(
+        self,
+        trade: Dict,
+        current_price: float,
+        atr: float,
+    ) -> Optional[float]:
+        """
+        Calculate new trailing stop if position is in profit.
+        Only move SL in profit direction, never against.
+        Activates after profit > 1× risk.
+        
+        Returns:
+            New stop loss price, or None if no update needed
+        """
+        side = trade["side"]
+        entry_price = trade["price"]
+        current_sl = trade.get("stop_loss", 0)
+
+        if side == "buy":
+            profit = current_price - entry_price
+            risk = entry_price - current_sl if current_sl else 0
+
+            # Activate trailing only after 1× risk profit
+            if risk > 0 and profit > risk:
+                new_sl = current_price - (atr * self.sl_multiplier)
+                if new_sl > current_sl:  # Only move UP
+                    logger.info(
+                        f"📈 Trailing SL: {current_sl:,.0f} → {new_sl:,.0f} "
+                        f"(profit: {profit:,.0f})"
+                    )
+                    return round(new_sl, 2)
+
+        elif side == "sell":
+            profit = entry_price - current_price
+            risk = current_sl - entry_price if current_sl else 0
+
+            if risk > 0 and profit > risk:
+                new_sl = current_price + (atr * self.sl_multiplier)
+                if new_sl < current_sl:  # Only move DOWN
+                    logger.info(
+                        f"📉 Trailing SL: {current_sl:,.0f} → {new_sl:,.0f} "
+                        f"(profit: {profit:,.0f})"
+                    )
+                    return round(new_sl, 2)
+
+        return None

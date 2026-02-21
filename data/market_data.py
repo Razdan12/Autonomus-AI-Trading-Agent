@@ -1,0 +1,236 @@
+"""
+Market Data Fetcher - OHLCV & exchange data via ccxt.
+Connects to Indodax exchange and fetches price data for analysis.
+"""
+
+import time
+import ccxt
+import pandas as pd
+from typing import List, Dict, Optional, Any
+from datetime import datetime, timedelta
+
+from config import Config
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+class MarketDataFetcher:
+    """Fetches market data from Indodax via ccxt."""
+
+    def __init__(self, config: Config):
+        self.config = config
+
+        # Initialize ccxt Indodax exchange
+        exchange_params = {
+            "enableRateLimit": True,
+            "timeout": 30000,
+        }
+
+        if config.indodax.api_key and config.indodax.secret:
+            exchange_params["apiKey"] = config.indodax.api_key
+            exchange_params["secret"] = config.indodax.secret
+
+        self.exchange = ccxt.indodax(exchange_params)
+        self._markets_loaded = False
+
+    def _ensure_markets(self):
+        """Load markets if not already loaded."""
+        if not self._markets_loaded:
+            try:
+                self.exchange.load_markets()
+                self._markets_loaded = True
+                logger.info(f"📡 Loaded {len(self.exchange.markets)} markets from Indodax")
+            except Exception as e:
+                logger.error(f"❌ Failed to load markets: {e}")
+                raise
+
+    def fetch_ohlcv(
+        self,
+        symbol: str,
+        timeframe: str = "1h",
+        limit: int = 200,
+        since: Optional[int] = None,
+    ) -> pd.DataFrame:
+        """
+        Fetch OHLCV candle data from Indodax.
+        
+        Args:
+            symbol: Trading pair e.g. 'BTC/IDR'
+            timeframe: Candle timeframe e.g. '1h', '4h', '1d'
+            limit: Number of candles to fetch (max ~1000)
+            since: Start timestamp in ms (optional)
+            
+        Returns:
+            DataFrame with columns: timestamp, open, high, low, close, volume
+        """
+        self._ensure_markets()
+
+        try:
+            logger.info(f"📊 Fetching {limit} x {timeframe} candles for {symbol}")
+
+            ohlcv = self.exchange.fetch_ohlcv(
+                symbol=symbol,
+                timeframe=timeframe,
+                limit=limit,
+                since=since,
+            )
+
+            if not ohlcv:
+                logger.warning(f"⚠️ No OHLCV data returned for {symbol}")
+                return pd.DataFrame()
+
+            df = pd.DataFrame(
+                ohlcv,
+                columns=["timestamp", "open", "high", "low", "close", "volume"],
+            )
+
+            # Convert timestamp from ms to datetime
+            df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms")
+            df.set_index("datetime", inplace=True)
+
+            logger.info(
+                f"✅ Got {len(df)} candles for {symbol} "
+                f"({df.index[0]} → {df.index[-1]})"
+            )
+
+            return df
+
+        except ccxt.NetworkError as e:
+            logger.error(f"🌐 Network error fetching OHLCV for {symbol}: {e}")
+            raise
+        except ccxt.ExchangeError as e:
+            logger.error(f"🏦 Exchange error fetching OHLCV for {symbol}: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"❌ Unexpected error fetching OHLCV for {symbol}: {e}")
+            raise
+
+    def fetch_multi_timeframe(
+        self, symbol: str, timeframes: List[str] = None
+    ) -> Dict[str, pd.DataFrame]:
+        """
+        Fetch OHLCV data for multiple timeframes simultaneously.
+        Used for multi-timeframe confirmation.
+
+        Args:
+            symbol: Trading pair e.g. 'BTC/IDR'
+            timeframes: List of timeframes e.g. ['1h', '4h', '1d']
+
+        Returns:
+            Dict mapping timeframe to DataFrame
+        """
+        if timeframes is None:
+            timeframes = ["1h", "4h", "1d"]
+
+        result = {}
+        for tf in timeframes:
+            try:
+                result[tf] = self.fetch_ohlcv(symbol, tf)
+                time.sleep(1)  # Rate limit between calls
+            except Exception as e:
+                logger.error(f"❌ Failed to fetch {tf} data for {symbol}: {e}")
+                result[tf] = pd.DataFrame()
+
+        return result
+
+    def fetch_ticker(self, symbol: str) -> Dict[str, Any]:
+        """
+        Fetch current ticker data for a symbol.
+        
+        Returns:
+            Dict with: last, bid, ask, high, low, volume, etc.
+        """
+        self._ensure_markets()
+
+        try:
+            ticker = self.exchange.fetch_ticker(symbol)
+            logger.info(
+                f"💹 {symbol} Last: {ticker['last']:,.0f} IDR | "
+                f"Vol24h: {ticker.get('baseVolume', 0):,.4f}"
+            )
+            return ticker
+        except Exception as e:
+            logger.error(f"❌ Failed to fetch ticker for {symbol}: {e}")
+            raise
+
+    def fetch_order_book(self, symbol: str, limit: int = 20) -> Dict[str, Any]:
+        """
+        Fetch order book depth.
+        
+        Returns:
+            Dict with 'bids' and 'asks' arrays.
+        """
+        self._ensure_markets()
+
+        try:
+            order_book = self.exchange.fetch_order_book(symbol, limit)
+            bid_vol = sum([b[1] for b in order_book["bids"][:10]])
+            ask_vol = sum([a[1] for a in order_book["asks"][:10]])
+            ratio = bid_vol / ask_vol if ask_vol > 0 else 0
+
+            logger.info(
+                f"📗 {symbol} OrderBook — "
+                f"Bid Vol: {bid_vol:.4f} | Ask Vol: {ask_vol:.4f} | "
+                f"B/A Ratio: {ratio:.2f}"
+            )
+            return order_book
+        except Exception as e:
+            logger.error(f"❌ Failed to fetch order book for {symbol}: {e}")
+            raise
+
+    def fetch_trades(self, symbol: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        Fetch recent public trades for a symbol.
+        Used to detect volume anomalies and spikes.
+        """
+        self._ensure_markets()
+        try:
+            trades = self.exchange.fetch_trades(symbol, limit=limit)
+            return trades
+        except Exception as e:
+            logger.error(f"❌ Failed to fetch trades for {symbol}: {e}")
+            return []
+
+    def fetch_balance(self) -> Dict[str, Any]:
+        """
+        Fetch account balance (requires API key).
+        
+        Returns:
+            Dict with balance info per currency.
+        """
+        if not self.config.indodax.api_key:
+            logger.warning("⚠️ No API key — returning mock balance for paper trading")
+            return {
+                "total": {"IDR": 10_000_000},
+                "free": {"IDR": 10_000_000},
+                "used": {"IDR": 0},
+            }
+
+        try:
+            balance = self.exchange.fetch_balance()
+            idr_total = balance.get("total", {}).get("IDR", 0)
+            logger.info(f"💰 Balance: {idr_total:,.0f} IDR")
+            return balance
+        except Exception as e:
+            logger.error(f"❌ Failed to fetch balance: {e}")
+            raise
+
+    def get_available_pairs(self) -> List[str]:
+        """Get all available trading pairs on Indodax."""
+        self._ensure_markets()
+        pairs = list(self.exchange.markets.keys())
+        idr_pairs = [p for p in pairs if p.endswith("/IDR")]
+        logger.info(f"📋 Available IDR pairs: {len(idr_pairs)}")
+        return idr_pairs
+
+    def validate_pairs(self, pairs: List[str]) -> List[str]:
+        """Validate that requested pairs exist on the exchange."""
+        available = self.get_available_pairs()
+        valid = []
+        for pair in pairs:
+            if pair in available:
+                valid.append(pair)
+            else:
+                logger.warning(f"⚠️ Pair {pair} not available on Indodax — skipping")
+        return valid
