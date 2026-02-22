@@ -116,16 +116,20 @@ def get_volume_anomalies(limit: int = 10) -> List[VolumeAnomalyResponse]:
     rows = c.fetchall()
     conn.close()
     
-    return [VolumeAnomalyResponse(
-        id=r['id'],
-        symbol=r['symbol'],
-        type=r['anomaly_type'],
-        side=r['side'],
-        amount_usd=r['amount_usd'],
-        z_score=r.get('z_score', 0.0),
-        imbalance_ratio=0.0,
-        timestamp=datetime.fromtimestamp(r['timestamp']/1000.0).isoformat()
-    ) for r in rows]
+    anomalies = []
+    for r in rows:
+        row_dict = dict(r)
+        anomalies.append(VolumeAnomalyResponse(
+            id=row_dict['id'],
+            symbol=row_dict['symbol'],
+            type=row_dict['anomaly_type'],
+            side=row_dict['side'],
+            amount_usd=row_dict['amount_usd'],
+            z_score=row_dict.get('z_score', 0.0),
+            imbalance_ratio=0.0,
+            timestamp=datetime.fromtimestamp(row_dict['timestamp']/1000.0).isoformat() if isinstance(row_dict['timestamp'], (int, float)) else str(row_dict['timestamp'])
+        ))
+    return anomalies
 
 def get_equity_curve() -> List[ChartDataPoint]:
     conn = get_db_connection()

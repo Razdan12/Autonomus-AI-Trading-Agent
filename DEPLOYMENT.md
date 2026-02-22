@@ -86,7 +86,7 @@ Lalu kita luncurkan API Server di Port 8000:
 ```bash
 cd /root/ai-trading
 export PYTHONPATH=$(pwd)
-pm2 start ./venv/bin/uvicorn --name "ai-trading-api" -- presentation.api.main:app --host 127.0.0.1 --port 8000
+pm2 start ./venv/bin/python --name "ai-trading-api" -- -m uvicorn presentation.api.main:app --host 127.0.0.1 --port 8000
 ```
 
 ### 3.4. Simpan Konfigurasi dan Setup Auto-Start
@@ -157,15 +157,6 @@ server {
 sudo ln -s /etc/nginx/sites-available/aitrading /etc/nginx/sites-enabled/
 sudo systemctl restart nginx
 ```
-
-````
-
-3. Aktifkan koneksi Nginx:
-
-```bash
-sudo ln -s /etc/nginx/sites-available/aitrading /etc/nginx/sites-enabled/
-sudo systemctl restart nginx
-````
 
 ---
 
