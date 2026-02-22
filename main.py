@@ -242,11 +242,14 @@ class TradingAgent:
             return
 
         # Get equity
-        try:
-            balance = self.market_data.fetch_balance()
-            equity = balance.get("free", {}).get("IDR", 10_000_000)
-        except Exception:
-            equity = 10_000_000  # Paper trading default
+        if self.config.trading.mode == "paper":
+            equity = 300_000
+        else:
+            try:
+                balance = self.market_data.fetch_balance()
+                equity = balance.get("free", {}).get("IDR", 0)
+            except Exception:
+                equity = 0
 
         # Calculate order with risk management
         order_plan = self.risk_manager.calculate_order(
