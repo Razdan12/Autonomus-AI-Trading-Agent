@@ -58,8 +58,7 @@ function App() {
   const [positions, setPositions] = useState<Position[]>([]);
   const [anomalies, setAnomalies] = useState<VolumeAnomaly[]>([]);
   const [_, setSignals] = useState<Signal[]>([]);
-  const [candlesData, setCandlesData] = useState<any[]>([]);
-  const [activeSymbol, setActiveSymbol] = useState('SOL-IDR');
+  const [equityData, setEquityData] = useState<any[]>([]);
 
   const [loading, setLoading] = useState(true);
 
@@ -67,25 +66,19 @@ function App() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [portRes, posRes, anomRes, sigRes, candleRes] = await Promise.all([
+        const [portRes, posRes, anomRes, sigRes, eqRes] = await Promise.all([
           axios.get(`${API_BASE}/portfolio`),
           axios.get(`${API_BASE}/positions`),
           axios.get(`${API_BASE}/volume`),
           axios.get(`${API_BASE}/signals`),
-          axios.get(`${API_BASE}/candles/${activeSymbol}`)
+          axios.get(`${API_BASE}/equity`)
         ]);
 
         setPortfolio(portRes.data);
         setPositions(posRes.data);
         setAnomalies(anomRes.data);
         setSignals(sigRes.data);
-
-        // Map backend candles to ApexCharts series format
-        const formattedCandles = candleRes.data.map((c: any) => ({
-          x: new Date(c.timestamp).getTime(),
-          y: [c.open, c.high, c.low, c.close]
-        }));
-        setCandlesData([{ data: formattedCandles }]);
+        setEquityData(eqRes.data);
 
       } catch (err) {
         console.error("Failed to fetch data", err);
@@ -204,42 +197,35 @@ function App() {
       {/* CHARTS ROW */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
 
-        {/* CANDLESTICK CHART */}
+        {/* EQUITY CURVE (APEXCHARTS) */}
         <div className="lg:col-span-2 glass-card px-8 py-6 rounded-2xl flex flex-col">
-          <div className="flex justify-between items-center mb-6">
-            <div className="flex items-center gap-2">
-              <BarChart2 className="w-5 h-5 text-gray-400" />
-              <h2 className="text-lg font-bold text-white tracking-wide">Market Chart</h2>
-            </div>
-            <select
-              className="bg-[#1e293b] text-gray-200 border border-gray-700 rounded-lg px-3 py-1 text-sm outline-none focus:border-blue-500"
-              value={activeSymbol}
-              onChange={(e) => setActiveSymbol(e.target.value)}
-            >
-              <option value="SOL-IDR">SOL/IDR</option>
-              <option value="ETH-IDR">ETH/IDR</option>
-              <option value="BTC-IDR">BTC/IDR</option>
-            </select>
+          <div className="flex items-center gap-2 mb-6">
+            <BarChart2 className="w-5 h-5 text-gray-400" />
+            <h2 className="text-lg font-bold text-white tracking-wide">Equity Curve</h2>
           </div>
           <div className="h-[400px] w-full text-black">
-            {candlesData.length > 0 && candlesData[0].data.length > 0 ? (
+            {equityData.length > 0 ? (
               <ReactApexChart
                 options={{
                   chart: {
-                    type: 'candlestick',
+                    type: 'area',
                     background: 'transparent',
-                    toolbar: { show: true, tools: { download: false } },
+                    toolbar: { show: false },
                     animations: { enabled: false }
                   },
                   theme: { mode: 'dark' },
-                  plotOptions: {
-                    candlestick: {
-                      colors: {
-                        upward: '#10b981', // Green
-                        downward: '#ef4444' // Red
-                      }
+                  colors: ['#3b82f6'],
+                  fill: {
+                    type: 'gradient',
+                    gradient: {
+                      shadeIntensity: 1,
+                      opacityFrom: 0.4,
+                      opacityTo: 0.05,
+                      stops: [0, 100]
                     }
                   },
+                  dataLabels: { enabled: false },
+                  stroke: { curve: 'smooth', width: 3 },
                   xaxis: {
                     type: 'datetime',
                     labels: { style: { colors: '#94a3b8' } },
@@ -250,18 +236,19 @@ function App() {
                     tooltip: { enabled: true },
                     labels: {
                       style: { colors: '#94a3b8' },
-                      formatter: (value) => value.toLocaleString('id-ID')
+                      formatter: (val) => `Rp ${(val / 1000000).toFixed(1)}M`
                     }
                   },
-                  grid: { borderColor: '#334155', strokeDashArray: 4 }
+                  grid: { borderColor: '#334155', strokeDashArray: 4 },
+                  tooltip: { theme: 'dark' }
                 }}
-                series={candlesData}
-                type="candlestick"
+                series={[{ name: 'Equity', data: equityData.map((d: any) => [new Date(d.time).getTime(), d.value]) }]}
+                type="area"
                 height="100%"
               />
             ) : (
               <div className="h-full flex items-center justify-center text-gray-500">
-                <p>Waiting for Market Data...</p>
+                <p>Not enough history recorded</p>
               </div>
             )}
           </div>
