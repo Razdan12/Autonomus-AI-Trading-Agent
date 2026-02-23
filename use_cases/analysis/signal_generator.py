@@ -73,7 +73,7 @@ class SignalGenerator:
             )
 
         # ──── Case 2: Only technical (no volume data) ────
-        if volume_signal is None or volume_signal.net_flow == "NEUTRAL":
+        if volume_signal is None:
             return self._tech_only_signal(tech_signal, volume_signal)
 
         # ──── Case 3: Both signals available ────
@@ -238,6 +238,27 @@ class SignalGenerator:
                 volume=volume,
             )
 
+        # STRONG TREND + NEUTRAL VOLUME → ALLOW ENTRY
+        if tech and volume.net_flow == "NEUTRAL":
+            if tech.trend == "BULLISH" and tech.confidence >= 0.4:
+                return TradingSignal(
+                    symbol=symbol,
+                    action="BUY" if tech.momentum != "STRONG" else "STRONG_BUY",
+                    confidence=round(tech.confidence * 0.8, 2),
+                    reason=f"🚀 Teknis {tech.trend} ({tech.momentum}) murni | Vol netral | RSI: {tech.rsi:.1f}",
+                    technical=tech,
+                    volume=volume,
+                )
+            elif tech.trend == "BEARISH" and tech.confidence >= 0.4:
+                return TradingSignal(
+                    symbol=symbol,
+                    action="SELL" if tech.momentum != "STRONG" else "STRONG_SELL",
+                    confidence=round(tech.confidence * 0.8, 2),
+                    reason=f"📉 Teknis {tech.trend} ({tech.momentum}) murni | Vol netral | RSI: {tech.rsi:.1f}",
+                    technical=tech,
+                    volume=volume,
+                )
+
         # Default fallback
         return TradingSignal(
             symbol=symbol,
@@ -302,12 +323,20 @@ class SignalGenerator:
             primary.reason += f" | ✅ MTF: {sell_signals}/{total} timeframes confirm SELL"
             primary.confidence = min(1.0, primary.confidence * 1.2)
         else:
-            # No multi-TF agreement → downgrade to HOLD
-            primary.action = "HOLD"
+            # No multi-TF agreement
+            if primary.action in ("STRONG_BUY", "STRONG_SELL"):
+                # Pass through strong signals but with reduced confidence
+                primary.confidence *= 0.8
+                primary.action = "BUY" if primary.action == "STRONG_BUY" else "SELL"
+                primary.reason += f" | ⚠️ MTF: Tidak ada konfirmasi, di-downgrade menjadi regular"
+            else:
+                # Downgrade regular signals to HOLD without confirmation
+                primary.action = "HOLD"
+                primary.confidence *= 0.5
+                primary.reason += f" | ⚠️ MTF: Tidak ada konfirmasi multi-timeframe"
+            
             primary.timeframes_aligned = max(buy_signals, sell_signals)
             primary.total_timeframes = total
-            primary.confidence *= 0.5
-            primary.reason += f" | ⚠️ MTF: Tidak ada konfirmasi multi-timeframe"
 
         logger.info(
             f"📊 {primary.symbol} Multi-TF Signal: {primary.action} | "

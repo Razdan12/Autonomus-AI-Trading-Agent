@@ -119,15 +119,15 @@ class SqliteRepository(IDatabase):
 
     def save_candles(self, symbol: str, timeframe: str, candles: List[List]):
         """Save OHLCV candles. candles = [[timestamp, O, H, L, C, V], ...]"""
-        cursor = self.conn.cursor()
         now = datetime.utcnow().isoformat()
-        for c in candles:
-            cursor.execute("""
-                INSERT OR REPLACE INTO candles 
-                (symbol, timeframe, timestamp, open, high, low, close, volume, fetched_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (symbol, timeframe, c[0], c[1], c[2], c[3], c[4], c[5], now))
-        self.conn.commit()
+        with self.conn:
+            cursor = self.conn.cursor()
+            for c in candles:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO candles 
+                    (symbol, timeframe, timestamp, open, high, low, close, volume, fetched_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (symbol, timeframe, c[0], c[1], c[2], c[3], c[4], c[5], now))
 
     def get_candles(self, symbol: str, timeframe: str, limit: int = 200) -> List[Dict]:
         """Get latest candles for a symbol/timeframe."""
@@ -146,18 +146,18 @@ class SqliteRepository(IDatabase):
 
     def save_volume_anomaly(self, event: Dict[str, Any]):
         """Save a single volume anomaly event."""
-        cursor = self.conn.cursor()
         now = datetime.utcnow().isoformat()
-        cursor.execute("""
-            INSERT INTO volume_anomalies
-            (symbol, anomaly_type, side, amount, price, amount_usd, z_score, timestamp, fetched_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            event["symbol"], event["anomaly_type"], event["side"],
-            event["amount"], event["price"], event["amount_usd"], 
-            event.get("z_score", 0.0), event["timestamp"], now
-        ))
-        self.conn.commit()
+        with self.conn:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                INSERT INTO volume_anomalies
+                (symbol, anomaly_type, side, amount, price, amount_usd, z_score, timestamp, fetched_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                event["symbol"], event["anomaly_type"], event["side"],
+                event["amount"], event["price"], event["amount_usd"], 
+                event.get("z_score", 0.0), event["timestamp"], now
+            ))
 
     def get_volume_anomalies(self, symbol: str, since_timestamp: int) -> List[Dict]:
         """Get volume anomalies for a symbol since a given timestamp."""
@@ -173,24 +173,24 @@ class SqliteRepository(IDatabase):
 
     def save_signal(self, signal: Dict[str, Any]) -> int:
         """Save a trading signal and return its ID."""
-        cursor = self.conn.cursor()
         now = datetime.utcnow().isoformat()
-        cursor.execute("""
-            INSERT INTO signals
-            (symbol, timeframe, signal_type, technical_trend, technical_momentum,
-             technical_confidence, volume_flow, volume_intensity, volume_confidence,
-             combined_action, combined_confidence, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            signal["symbol"], signal["timeframe"], signal.get("signal_type", "analysis"),
-            signal.get("technical_trend"), signal.get("technical_momentum"),
-            signal.get("technical_confidence"),
-            signal.get("volume_flow"), signal.get("volume_intensity"),
-            signal.get("volume_confidence"),
-            signal["combined_action"], signal["combined_confidence"], now
-        ))
-        self.conn.commit()
-        return cursor.lastrowid
+        with self.conn:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                INSERT INTO signals
+                (symbol, timeframe, signal_type, technical_trend, technical_momentum,
+                 technical_confidence, volume_flow, volume_intensity, volume_confidence,
+                 combined_action, combined_confidence, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                signal["symbol"], signal["timeframe"], signal.get("signal_type", "analysis"),
+                signal.get("technical_trend"), signal.get("technical_momentum"),
+                signal.get("technical_confidence"),
+                signal.get("volume_flow"), signal.get("volume_intensity"),
+                signal.get("volume_confidence"),
+                signal["combined_action"], signal["combined_confidence"], now
+            ))
+            return cursor.lastrowid
 
     def get_recent_signals(self, limit: int = 10) -> List[Dict]:
         """Get the most recent signals."""
@@ -206,44 +206,44 @@ class SqliteRepository(IDatabase):
 
     def save_trade(self, trade: Dict[str, Any]) -> int:
         """Save a new trade and return its ID."""
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            INSERT INTO trades
-            (symbol, side, order_type, price, amount, cost,
-             stop_loss, take_profit, status, mode, signal_id, opened_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            trade["symbol"], trade["side"], trade["order_type"],
-            trade["price"], trade["amount"], trade["cost"],
-            trade.get("stop_loss"), trade.get("take_profit"),
-            trade.get("status", "open"), trade.get("mode", "paper"),
-            trade.get("signal_id"), datetime.utcnow().isoformat()
-        ))
-        self.conn.commit()
-        return cursor.lastrowid
+        with self.conn:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                INSERT INTO trades
+                (symbol, side, order_type, price, amount, cost,
+                 stop_loss, take_profit, status, mode, signal_id, opened_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                trade["symbol"], trade["side"], trade["order_type"],
+                trade["price"], trade["amount"], trade["cost"],
+                trade.get("stop_loss"), trade.get("take_profit"),
+                trade.get("status", "open"), trade.get("mode", "paper"),
+                trade.get("signal_id"), datetime.utcnow().isoformat()
+            ))
+            return cursor.lastrowid
 
     def close_trade(self, trade_id: int, close_price: float, reason: str):
         """Close a trade with final P&L calculation."""
-        cursor = self.conn.cursor()
-        # Get the original trade
-        cursor.execute("SELECT * FROM trades WHERE id = ?", (trade_id,))
-        trade = dict(cursor.fetchone())
+        with self.conn:
+            cursor = self.conn.cursor()
+            # Get the original trade
+            cursor.execute("SELECT * FROM trades WHERE id = ?", (trade_id,))
+            trade = dict(cursor.fetchone())
 
-        # Calculate P&L
-        if trade["side"] == "buy":
-            pnl = (close_price - trade["price"]) * trade["amount"]
-        else:
-            pnl = (trade["price"] - close_price) * trade["amount"]
+            # Calculate P&L
+            if trade["side"] == "buy":
+                pnl = (close_price - trade["price"]) * trade["amount"]
+            else:
+                pnl = (trade["price"] - close_price) * trade["amount"]
 
-        pnl_percent = (pnl / trade["cost"]) * 100 if trade["cost"] > 0 else 0
+            pnl_percent = (pnl / trade["cost"]) * 100 if trade["cost"] > 0 else 0
 
-        cursor.execute("""
-            UPDATE trades SET
-                status = 'closed', closed_at = ?, close_price = ?,
-                pnl = ?, pnl_percent = ?, close_reason = ?
-            WHERE id = ?
-        """, (datetime.utcnow().isoformat(), close_price, pnl, pnl_percent, reason, trade_id))
-        self.conn.commit()
+            cursor.execute("""
+                UPDATE trades SET
+                    status = 'closed', closed_at = ?, close_price = ?,
+                    pnl = ?, pnl_percent = ?, close_reason = ?
+                WHERE id = ?
+            """, (datetime.utcnow().isoformat(), close_price, pnl, pnl_percent, reason, trade_id))
 
     def get_open_trades(self, symbol: Optional[str] = None) -> List[Dict]:
         """Get all open trades, optionally filtered by symbol."""

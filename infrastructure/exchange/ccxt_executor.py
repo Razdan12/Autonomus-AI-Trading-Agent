@@ -133,20 +133,21 @@ class OrderExecutor(IExecutor):
 
                 return trade
 
-            except Exception as e:
-                logger.error(
-                    f"❌ Live order attempt {attempt + 1} failed: {e}"
-                )
+            except __import__('ccxt').ExchangeError as e:
+                logger.error(f"❌ Exchange rejected LIVE order (NO RETRY): {e}")
+                return None
+            except __import__('ccxt').NetworkError as e:
+                logger.error(f"🌐 Network error during LIVE order: {e}")
                 if attempt < max_retries - 1:
-                    wait = (attempt + 1) * 2  # Exponential backoff
+                    wait = (attempt + 1) * 2
                     logger.info(f"⏳ Retrying in {wait}s...")
                     await asyncio.sleep(wait)
                 else:
-                    logger.error(
-                        f"❌ All {max_retries} attempts failed for "
-                        f"{plan.side.upper()} {plan.symbol}"
-                    )
+                    logger.error(f"❌ All {max_retries} attempts failed for {plan.side.upper()} {plan.symbol}")
                     return None
+            except Exception as e:
+                logger.error(f"❌ Unexpected LIVE order failure: {e}")
+                return None
 
     async def close_position(
         self,
@@ -173,12 +174,18 @@ class OrderExecutor(IExecutor):
             if self.mode == "live":
                 # Execute opposite order to close
                 close_side = "sell" if side == "buy" else "buy"
-                await self.market.exchange.create_order(
-                    symbol=symbol,
-                    type="market",
-                    side=close_side,
-                    amount=trade["amount"],
-                )
+                try:
+                    await self.market.exchange.create_order(
+                        symbol=symbol,
+                        type="market",
+                        side=close_side,
+                        amount=trade["amount"],
+                    )
+                except __import__('ccxt').ExchangeError as e:
+                    logger.error(f"⚠️ Exchange rejected close for {symbol}, forcing DB close to prevent Zombie Order: {e}")
+                except Exception as e:
+                    logger.error(f"❌ Network/Unknown error closing {symbol} on exchange (WILL RETRY NEXT TICK): {e}")
+                    return False
 
             # Update database
             self.db.close_trade(trade_id, current_price, reason)

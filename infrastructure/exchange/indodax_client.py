@@ -238,3 +238,9 @@ class MarketDataFetcher(IMarketData):
             else:
                 logger.warning(f"⚠️ Pair {pair} not available on Indodax — skipping")
         return valid
+
+    async def close(self):
+        """Close the CCXT exchange connection properly."""
+        if hasattr(self, 'exchange'):
+            await self.exchange.close()
+            logger.info("🔌 CCXT Indodax exchange session closed.")

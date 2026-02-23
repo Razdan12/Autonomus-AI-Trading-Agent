@@ -221,10 +221,11 @@ class TechnicalAnalyzer:
                 volatility = "LOW"
 
             # Confidence (how aligned are signals)
+            active_indicators = sum(1 for s in scores.values() if s != 0)
             same_direction = sum(
-                1 for s in scores.values() if (s > 0) == (combined > 0)
+                1 for s in scores.values() if (s > 0) == (combined > 0) and s != 0
             )
-            confidence = same_direction / len(scores)
+            confidence = same_direction / active_indicators if active_indicators > 0 else 0.0
 
             signal = TechnicalSignal(
                 symbol=symbol,

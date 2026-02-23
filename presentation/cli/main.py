@@ -136,6 +136,25 @@ class TradingAgent:
 
             await asyncio.sleep(1) # Yield control back to loop avoiding CPU hog
 
+        # Saat self.running = False (Signal handler triggered), jalankan cleanup
+        await self._cleanup()
+
+    async def _cleanup(self):
+        """Clean up active connections gracefully before exiting."""
+        logger.info("\n🧹 Membersihkan sesi dan koneksi asinkron...")
+        try:
+            if hasattr(self, 'market_data') and hasattr(self.market_data, 'close'):
+                await self.market_data.close()
+            if hasattr(self, 'news_client') and hasattr(self.news_client, 'close'):
+                await self.news_client.close()
+        except Exception as e:
+            logger.error(f"❌ Cleanup error: {e}")
+            
+        # Terakhir baru matikan DB
+        if hasattr(self, 'db') and hasattr(self.db, 'close'):
+            self.db.close()
+        logger.info("👋 Sesi ditutup. Bot Offline.")
+
     async def _run_cycle(self):
         """Run one complete analysis → signal → execution cycle for all pairs concurrently."""
         cycle_start = datetime.utcnow()
@@ -339,12 +358,9 @@ class TradingAgent:
 
     def _shutdown(self, signum, frame):
         """Graceful shutdown handler."""
-        logger.info("\n🛑 Shutting down AI Trading Agent...")
+        logger.info("\n🛑 Sinyal Terminasi diterima (Shutting down AI Trading Agent)...")
         self.running = False
-        self.db.close()
-        logger.info("👋 Goodbye!")
-        sys.exit(0)
-
+        # Membiarkan asyncio event loop selesai natural untuk memanggil _cleanup()
 
 def main():
     """Entry point."""

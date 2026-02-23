@@ -78,7 +78,8 @@ class VolumeAnalyzer:
             
         # 4. Confidence Score
         # High volume + strong one-sided imbalance = high confidence
-        volume_factor = min(1.0, total_usd / (min_usd * 15))
+        safe_min_usd = max(min_usd, 1.0)
+        volume_factor = min(1.0, total_usd / (safe_min_usd * 15))
         imbalance_factor = abs(imbalance_score)
         
         # Confidence is a blend of how much volume we saw and how one-sided it was

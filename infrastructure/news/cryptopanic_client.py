@@ -20,6 +20,12 @@ class CryptoPanicClient(INewsData):
         self.config = config
         self.api_key = config.news.cryptopanic_api_key
         self.base_url = "https://cryptopanic.com/api/v1/posts/"
+        self.session = None
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        if self.session is None or self.session.closed:
+            self.session = aiohttp.ClientSession()
+        return self.session
 
     async def fetch_recent_headlines(self, symbol: str, limit: int = 20) -> List[str]:
         """Fetch recent headlines for a symbol using aiohttp."""
@@ -40,21 +46,21 @@ class CryptoPanicClient(INewsData):
                 "filter": "important", # Pre-filter for high-impact news if possible
             }
             
-            async with aiohttp.ClientSession() as session:
-                async with session.get(self.base_url, params=params, timeout=10) as response:
-                    # CryptoPanic might return 401 if key is missing/invalid, or 429 if rate limited
-                    if response.status == 200:
-                        data = await response.json()
-                        results = data.get("results", [])
-                        for item in results:
-                            # Extract headline title
-                            title = item.get("title")
-                            if title:
-                                headlines.append(title)
-                                if len(headlines) >= limit:
-                                    break
-                    else:
-                        logger.warning(f"⚠️ CryptoPanic API returned status {response.status} for {coin}")
+            session = await self._get_session()
+            async with session.get(self.base_url, params=params, timeout=10) as response:
+                # CryptoPanic might return 401 if key is missing/invalid, or 429 if rate limited
+                if response.status == 200:
+                    data = await response.json()
+                    results = data.get("results", [])
+                    for item in results:
+                        # Extract headline title
+                        title = item.get("title")
+                        if title:
+                            headlines.append(title)
+                            if len(headlines) >= limit:
+                                break
+                else:
+                    logger.warning(f"⚠️ CryptoPanic API returned status {response.status} for {coin}")
                         
             return headlines
             
@@ -64,3 +70,9 @@ class CryptoPanicClient(INewsData):
         except Exception as e:
             logger.error(f"❌ CryptoPanic client error for {symbol}: {e}")
             return []
+
+    async def close(self):
+        """Close the aiohttp session."""
+        if self.session and not self.session.closed:
+            await self.session.close()
+            logger.info("🔌 CryptoPanic API session closed.")
