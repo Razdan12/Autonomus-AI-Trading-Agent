@@ -140,7 +140,7 @@ def get_equity_curve() -> List[ChartDataPoint]:
     conn.close()
     
     return [ChartDataPoint(
-        time=r['snapshot_at'].split('.')[0].replace('T', ' '),
+        time=r['snapshot_at'],
         value=r['total_equity']
     ) for r in rows]
 
