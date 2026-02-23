@@ -5,7 +5,7 @@ Stores: candles (OHLCV), whale events, trades, positions, signals.
 
 import sqlite3
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from core.interfaces.database_port import IDatabase
 
@@ -119,7 +119,7 @@ class SqliteRepository(IDatabase):
 
     def save_candles(self, symbol: str, timeframe: str, candles: List[List]):
         """Save OHLCV candles. candles = [[timestamp, O, H, L, C, V], ...]"""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with self.conn:
             cursor = self.conn.cursor()
             for c in candles:
@@ -146,7 +146,7 @@ class SqliteRepository(IDatabase):
 
     def save_volume_anomaly(self, event: Dict[str, Any]):
         """Save a single volume anomaly event."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with self.conn:
             cursor = self.conn.cursor()
             cursor.execute("""
@@ -173,7 +173,7 @@ class SqliteRepository(IDatabase):
 
     def save_signal(self, signal: Dict[str, Any]) -> int:
         """Save a trading signal and return its ID."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with self.conn:
             cursor = self.conn.cursor()
             cursor.execute("""
@@ -218,7 +218,7 @@ class SqliteRepository(IDatabase):
                 trade["price"], trade["amount"], trade["cost"],
                 trade.get("stop_loss"), trade.get("take_profit"),
                 trade.get("status", "open"), trade.get("mode", "paper"),
-                trade.get("signal_id"), datetime.utcnow().isoformat()
+                trade.get("signal_id"), datetime.now(timezone.utc).isoformat()
             ))
             return cursor.lastrowid
 
@@ -243,7 +243,7 @@ class SqliteRepository(IDatabase):
                     status = 'closed', closed_at = ?, close_price = ?,
                     pnl = ?, pnl_percent = ?, close_reason = ?
                 WHERE id = ?
-            """, (datetime.utcnow().isoformat(), close_price, pnl, pnl_percent, reason, trade_id))
+            """, (datetime.now(timezone.utc).isoformat(), close_price, pnl, pnl_percent, reason, trade_id))
 
     def get_open_trades(self, symbol: Optional[str] = None) -> List[Dict]:
         """Get all open trades, optionally filtered by symbol."""
@@ -258,7 +258,7 @@ class SqliteRepository(IDatabase):
     def get_trades_today(self) -> List[Dict]:
         """Get all trades opened today (for drawdown calculation)."""
         cursor = self.conn.cursor()
-        today = datetime.utcnow().strftime("%Y-%m-%d")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         cursor.execute(
             "SELECT * FROM trades WHERE opened_at LIKE ?", (f"{today}%",))
         return [dict(r) for r in cursor.fetchall()]
@@ -276,7 +276,7 @@ class SqliteRepository(IDatabase):
         """, (
             snapshot["total_equity"], snapshot["available_balance"],
             snapshot["unrealized_pnl"], snapshot["realized_pnl_today"],
-            snapshot["open_positions"], datetime.utcnow().isoformat()
+            snapshot["open_positions"], datetime.now(timezone.utc).isoformat()
         ))
         self.conn.commit()
 

@@ -14,7 +14,7 @@ import time
 import asyncio
 import signal
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 
 from config.settings import Config
 from infrastructure.storage.sqlite_repository import SqliteRepository as Database
@@ -157,7 +157,7 @@ class TradingAgent:
 
     async def _run_cycle(self):
         """Run one complete analysis → signal → execution cycle for all pairs concurrently."""
-        cycle_start = datetime.utcnow()
+        cycle_start = datetime.now(timezone.utc)
         logger.info(f"\n{'═' * 60}")
         logger.info(f"🔄 Analysis Cycle Start: {cycle_start.isoformat()}")
         logger.info(f"{'═' * 60}")
@@ -179,7 +179,7 @@ class TradingAgent:
             # ──── Step 3: Display Dashboard ────
             await self._display_dashboard()
 
-            duration = (datetime.utcnow() - cycle_start).total_seconds()
+            duration = (datetime.now(timezone.utc) - cycle_start).total_seconds()
             logger.info(f"✅ Analysis cycle complete in {duration:.1f}s")
 
         except Exception as e:
