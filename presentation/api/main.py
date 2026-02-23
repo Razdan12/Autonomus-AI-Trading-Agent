@@ -59,7 +59,7 @@ def api_equity_curve():
     return get_equity_curve()
 
 @app.get("/api/candles/{symbol}", response_model=List[CandleResponse])
-def api_candles(symbol: str, timeframe: str = "15m", limit: int = 100):
+def api_candles(symbol: str, timeframe: str = "1h", limit: int = 100):
     """Get historical OHLCV candles for charting."""
     # Handle api paths like SOL-IDR converting it to SOL/IDR 
     symbol = symbol.replace('-', '/').upper()

@@ -144,7 +144,7 @@ def get_equity_curve() -> List[ChartDataPoint]:
         value=r['total_equity']
     ) for r in rows]
 
-def get_latest_candles(symbol: str, timeframe: str = "15m", limit: int = 100) -> List[CandleResponse]:
+def get_latest_candles(symbol: str, timeframe: str = "1h", limit: int = 100) -> List[CandleResponse]:
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("""
