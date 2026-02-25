@@ -169,7 +169,9 @@ class TradingAgent:
             market_regime = await self.market_regime_analyzer.analyze()
 
             if self.config.trading.mode == "paper":
-                equity = 300_000
+                today_trades = self.db.get_trades_today()
+                realized_today = sum(t.get("pnl", 0) for t in today_trades if t.get("pnl") is not None)
+                equity = 300_000 + realized_today
             else:
                 try:
                     balance = await self.market_data.fetch_balance()

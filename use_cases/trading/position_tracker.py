@@ -185,7 +185,8 @@ class PositionTracker:
         # Equity calculation
         if equity is None:
             if self.config.trading.mode == "paper":
-                equity = 300_000
+                # In paper trading, equity is starting balance + realized PnL
+                equity = 300_000 + realized_today
             else:
                 try:
                     balance = await self.market.fetch_balance()
