@@ -71,6 +71,8 @@ class SqliteRepository(IDatabase):
                 volume_confidence REAL,
                 combined_action TEXT NOT NULL,
                 combined_confidence REAL NOT NULL,
+                ai_decision TEXT,
+                ai_reasoning TEXT,
                 created_at TEXT NOT NULL
             )
         """)
@@ -180,15 +182,17 @@ class SqliteRepository(IDatabase):
                 INSERT INTO signals
                 (symbol, timeframe, signal_type, technical_trend, technical_momentum,
                  technical_confidence, volume_flow, volume_intensity, volume_confidence,
-                 combined_action, combined_confidence, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 combined_action, combined_confidence, ai_decision, ai_reasoning, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 signal["symbol"], signal["timeframe"], signal.get("signal_type", "analysis"),
                 signal.get("technical_trend"), signal.get("technical_momentum"),
                 signal.get("technical_confidence"),
                 signal.get("volume_flow"), signal.get("volume_intensity"),
                 signal.get("volume_confidence"),
-                signal["combined_action"], signal["combined_confidence"], now
+                signal["combined_action"], signal["combined_confidence"],
+                signal.get("ai_decision"), signal.get("ai_reasoning"),
+                now
             ))
             return cursor.lastrowid
 

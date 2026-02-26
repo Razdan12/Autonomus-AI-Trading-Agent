@@ -47,6 +47,13 @@ class NewsConfig:
 
 
 @dataclass
+class AIConfig:
+    gemini_api_key: str = ""
+    model_name: str = "gemini-1.5-flash"
+    enable_llm_audit: bool = True
+
+
+@dataclass
 class TradingConfig:
     mode: str = "paper"                   # "paper" or "live"
     pairs: List[str] = field(default_factory=lambda: ["BTC/IDR", "ETH/IDR", "SOL/IDR", "ADA/IDR", "DOGE/IDR", "XRP/IDR", "PEPE/IDR"])
@@ -106,6 +113,12 @@ class Config:
         self.log = LogConfig(
             level=os.getenv("LOG_LEVEL", "INFO"),
             directory=os.getenv("LOG_DIR", "logs"),
+        )
+
+        self.ai = AIConfig(
+            gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
+            model_name=os.getenv("GEMINI_MODEL", "gemini-1.5-flash"),
+            enable_llm_audit=os.getenv("ENABLE_LLM_AUDIT", "true").lower() == "true",
         )
 
     def validate(self) -> List[str]:

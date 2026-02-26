@@ -21,6 +21,10 @@ class TradingSignal:
     timeframes_aligned: int = 0
     total_timeframes: int = 1
 
+    # AI (LLM) Audit results
+    ai_decision: Optional[str] = None    # APPROVE, REJECT, WAIT
+    ai_reasoning: Optional[str] = None
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "symbol": self.symbol,

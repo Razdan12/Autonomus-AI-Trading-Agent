@@ -78,7 +78,8 @@ class SentimentAnalyzer:
             return {
                 "status": status,
                 "score": avg_score,
-                "reason": f"Analyzed {len(headlines)} latest headlines."
+                "reason": f"Analyzed {len(headlines)} latest headlines.",
+                "headlines": headlines
             }
 
         except Exception as e:

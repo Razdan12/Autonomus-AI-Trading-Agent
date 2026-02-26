@@ -31,6 +31,8 @@ from core.entities.trading_signal import TradingSignal
 from use_cases.trading.risk_manager import RiskManager
 from use_cases.trading.position_tracker import PositionTracker
 from infrastructure.news.cryptopanic_client import CryptoPanicClient
+from infrastructure.ai.llm_client import GeminiClient
+from use_cases.analysis.llm_strategist import LLMStrategist
 from utils.logger import setup_logging, get_logger
 from utils.dashboard import Dashboard, print_startup_banner
 
@@ -68,6 +70,13 @@ class TradingAgent:
             self.volume_analyzer
         )
         self.dashboard = Dashboard()
+
+        # AI Analyst (LLM)
+        self.gemini_client = GeminiClient(
+            api_key=config.ai.gemini_api_key,
+            model_name=config.ai.model_name
+        )
+        self.llm_strategist = LLMStrategist(self.gemini_client)
 
         # State
         self.last_signals = {}
@@ -260,10 +269,43 @@ class TradingAgent:
             tech_signals, volume_signal, sentiment_signal, daily_target_met, market_regime
         )
 
+        # ──── AI (LLM) Strategic Audit ────
+        if trading_signal.ai_decision == "AWAITING" and self.config.ai.enable_llm_audit:
+            logger.info(f"🤖 Calling LLM Strategist ({self.config.ai.model_name}) for {symbol}...")
+            
+            # Prepare contextual data for LLM
+            market_stats = {
+                "technical": {tf: s.trend for tf, s in tech_signals.items()},
+                "volume": volume_signal.to_dict(),
+                "sentiment": sentiment_signal.get("status", "NEUTRAL")
+            }
+            headlines = "\n".join(sentiment_signal.get("headlines", []))
+            
+            ai_result = await self.llm_strategist.analyze_signal(
+                trading_signal, market_stats, headlines
+            )
+            
+            trading_signal.ai_decision = ai_result.get("decision", "APPROVE")
+            trading_signal.ai_reasoning = ai_result.get("reasoning", "No detail provided.")
+            
+            logger.info(f"👤 LLM Strategist Decision: {trading_signal.ai_decision}")
+            logger.info(f"   Reason: {trading_signal.ai_reasoning}")
+            
+            if trading_signal.ai_decision == "REJECT":
+                trading_signal.action = "HOLD"
+                trading_signal.reason += f" | ❌ AI REJECTED: {trading_signal.ai_reasoning}"
+            elif trading_signal.ai_decision == "WAIT":
+                trading_signal.action = "HOLD"
+                trading_signal.reason += f" | ⏳ AI WAIT: {trading_signal.ai_reasoning}"
+            else:
+                trading_signal.reason += f" | ✅ AI APPROVED: {trading_signal.ai_reasoning}"
+
         # Save signal to database
         signal_dict = trading_signal.to_dict()
         signal_dict["symbol"] = symbol
         signal_dict["timeframe"] = self.config.trading.timeframe
+        signal_dict["ai_decision"] = trading_signal.ai_decision
+        signal_dict["ai_reasoning"] = trading_signal.ai_reasoning
         signal_id = self.db.save_signal(signal_dict)
 
         self.last_signals[symbol] = signal_dict

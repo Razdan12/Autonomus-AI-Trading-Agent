@@ -369,6 +369,11 @@ class SignalGenerator:
             primary.confidence = min(1.0, primary.confidence * 1.2)
             primary.reason += " | 🩸 STRONG BEAR REGIME: Sinyal Sell dikuatkan"
 
+        # Flag for AI (LLM) Audit if confidence is high and LLM is enabled
+        if primary.action in ("BUY", "STRONG_BUY", "SELL", "STRONG_SELL") and primary.confidence >= 0.7:
+            primary.ai_decision = "AWAITING"
+            primary.reason += " | 🤖 AI AUDIT: Sinyal kuat, memanggil LLM Strategist untuk konfirmasi"
+
         logger.info(
             f"📊 {primary.symbol} Multi-TF Signal: {primary.action} | "
             f"Aligned: {primary.timeframes_aligned}/{primary.total_timeframes} | "
