@@ -158,14 +158,19 @@ class OrderExecutor(IExecutor):
                     params=order_params
                 )
 
+                # Indodax CCXT often returns None for average/price/filled/cost on market orders
+                order_price = order.get("average") or order.get("price") or plan.entry_price
+                order_amount = order.get("filled") or plan.position_size
+                order_cost = order.get("cost") or plan.cost
+
                 # Save to database
                 trade = {
                     "symbol": plan.symbol,
                     "side": plan.side,
                     "order_type": "market",
-                    "price": order.get("average", order.get("price", plan.entry_price)),
-                    "amount": order.get("filled", plan.position_size),
-                    "cost": order.get("cost", plan.cost),
+                    "price": order_price,
+                    "amount": order_amount,
+                    "cost": order_cost,
                     "stop_loss": plan.stop_loss,
                     "take_profit": plan.take_profit,
                     "status": "open",
