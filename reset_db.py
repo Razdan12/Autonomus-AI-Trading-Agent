@@ -1,41 +1,38 @@
 import sqlite3
 import os
 
+from infrastructure.storage.sqlite_repository import SqliteRepository
+
 def reset_database():
     db_path = "trading_agent.db"
     
-    if not os.path.exists(db_path):
-        print(f"❌ Database '{db_path}' tidak ditemukan.")
-        return
+    # Force delete the file to start fresh if needed
+    if os.path.exists(db_path):
+        os.remove(db_path)
+    
+    if os.path.exists(db_path + "-shm"):
+        os.remove(db_path + "-shm")
+        
+    if os.path.exists(db_path + "-wal"):
+        os.remove(db_path + "-wal")
 
-    print(f"🔄 Memulai proses reset database '{db_path}'...")
+    print(f"🔄 Memulai proses reset database '{db_path}' dari awal...")
     
     try:
-        conn = sqlite3.connect(db_path)
-        c = conn.cursor()
+        # Recreate tables from scratch using the existing repository logic
+        db = SqliteRepository("trading_agent.db")
         
-        # Eksekusi penghapusan seluruh tabel data operasional
-        queries = [
-            "DELETE FROM trades;",
-            "DELETE FROM portfolio_snapshots;",
-            "DELETE FROM volume_anomalies;",
-            "DELETE FROM signals;",
-            "DELETE FROM candles;"
-        ]
+        # Inject an initial zero snapshot so the dashboard doesn't crash before the first cycle
+        db.save_portfolio_snapshot({
+            "total_equity": 0.0,
+            "available_balance": 0.0,
+            "unrealized_pnl": 0.0,
+            "realized_pnl_today": 0.0,
+            "open_positions": 0
+        })
         
-        for q in queries:
-            c.execute(q)
-            
-        conn.commit()
-        
-        # Mengeksekusi VACUUM secara terpisah di luar transaksi
-        conn.isolation_level = None
-        c.execute("VACUUM;")
-        conn.isolation_level = "" # kembalikan ke default
-        conn.close()
-        
-        print("✅ Berhasil! Seluruh riwayat trading, sinyal, dan candlestick telah dibersihkan.")
-        print("💡 Silakan jalankan ulang bot Anda menggunakan: pm2 restart ai-trading-bot")
+        print("✅ Berhasil! Database telah di-rebuild ulang beserta seluruh skema tabelnya.")
+        print("💡 Silakan jalankan ulang bot Anda (misal: pm2 restart ai-trading-bot)")
         
     except Exception as e:
         print(f"❌ Terjadi kesalahan saat mereset database: {e}")
