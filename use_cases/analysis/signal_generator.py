@@ -238,23 +238,23 @@ class SignalGenerator:
                 volume=volume,
             )
 
-        # STRONG TREND + NEUTRAL VOLUME → ALLOW ENTRY
+        # STRONG TREND + NEUTRAL VOLUME -> VETO (USER RULE)
         if tech and volume.net_flow == "NEUTRAL":
             if tech.trend == "BULLISH" and tech.confidence >= 0.4:
                 return TradingSignal(
                     symbol=symbol,
-                    action="BUY" if tech.momentum != "STRONG" else "STRONG_BUY",
-                    confidence=round(tech.confidence * 0.8, 2),
-                    reason=f"🚀 Teknis {tech.trend} ({tech.momentum}) murni | Vol netral | RSI: {tech.rsi:.1f}",
+                    action="HOLD",
+                    confidence=round(tech.confidence * 0.3, 2),
+                    reason=f"⚠️ VETO (USER RULE): Teknis {tech.trend} murni tanpa konfirmasi Volume Whale → HOLD",
                     technical=tech,
                     volume=volume,
                 )
             elif tech.trend == "BEARISH" and tech.confidence >= 0.4:
                 return TradingSignal(
                     symbol=symbol,
-                    action="SELL" if tech.momentum != "STRONG" else "STRONG_SELL",
-                    confidence=round(tech.confidence * 0.8, 2),
-                    reason=f"📉 Teknis {tech.trend} ({tech.momentum}) murni | Vol netral | RSI: {tech.rsi:.1f}",
+                    action="HOLD",
+                    confidence=round(tech.confidence * 0.3, 2),
+                    reason=f"⚠️ VETO (USER RULE): Teknis {tech.trend} murni tanpa konfirmasi Volume Whale → HOLD",
                     technical=tech,
                     volume=volume,
                 )

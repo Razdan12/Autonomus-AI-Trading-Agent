@@ -144,12 +144,17 @@ class OrderExecutor(IExecutor):
                     # For sell, use current price (or slightly above)
                     order_params = {"postOnly": True} # Ensure it only executes as maker
                     
+                # Fix indodax API rejecting pairs without underscore
+                if "indodax" in str(self.market.exchange.id).lower():
+                    order_params["pair"] = plan.symbol.replace("/", "_").lower()
+
+                # Indodax CCXT requires price even for market buy orders
                 order = await self.market.exchange.create_order(
                     symbol=plan.symbol,
                     type=order_type,
                     side=plan.side,
                     amount=plan.position_size,
-                    price=plan.entry_price if order_type == "limit" else None,
+                    price=plan.entry_price,
                     params=order_params
                 )
 
@@ -228,13 +233,17 @@ class OrderExecutor(IExecutor):
                     order_type = "limit"
                     order_params = {"postOnly": True}
                 
+                # Fix indodax API rejecting pairs without underscore
+                if "indodax" in str(self.market.exchange.id).lower():
+                    order_params["pair"] = symbol.replace("/", "_").lower()
+                
                 try:
                     await self.market.exchange.create_order(
                         symbol=symbol,
                         type=order_type,
                         side=close_side,
                         amount=trade["amount"],
-                        price=current_price if order_type == "limit" else None,
+                        price=current_price,
                         params=order_params
                     )
                 except __import__('ccxt').ExchangeError as e:
