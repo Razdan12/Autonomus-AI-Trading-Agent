@@ -234,11 +234,39 @@ class PositionTracker:
             else:
                 try:
                     balance = await self.market.fetch_balance()
-                    total_idr = balance.get("total", {}).get("IDR", 0)
-                    free_idr = balance.get("free", {}).get("IDR", 0)
-                except Exception:
-                    total_idr = 0
-                    free_idr = 0
+                    # Indodax ccxt returns {"IDR": {"free": ..., "total": ...}}
+                    # Fallback: ccxt standard format {"total": {"IDR": ...}}
+                    idr_balance = balance.get("IDR", {})
+                    total_idr = (
+                        idr_balance.get("total", 0)
+                        or balance.get("total", {}).get("IDR", 0)
+                    )
+                    free_idr = (
+                        idr_balance.get("free", 0)
+                        or balance.get("free", {}).get("IDR", 0)
+                    )
+
+                    # Safety guard: jangan simpan 0 jika fetch berhasil tapi balance kosong
+                    if total_idr == 0 and free_idr == 0:
+                        logger.warning(
+                            "⚠️ Balance IDR = 0 setelah fetch. Kemungkinan format response berbeda. "
+                            "Menggunakan snapshot terakhir sebagai fallback."
+                        )
+                        last_snap = self.db.get_latest_portfolio_snapshot()
+                        if last_snap:
+                            total_idr = last_snap["total_equity"]
+                            free_idr = last_snap["available_balance"]
+
+                except Exception as e:
+                    logger.error(f"❌ Gagal fetch balance dari exchange: {e}")
+                    # Fallback ke snapshot terakhir agar dashboard tidak menampilkan 0
+                    last_snap = self.db.get_latest_portfolio_snapshot()
+                    if last_snap:
+                        total_idr = last_snap["total_equity"]
+                        free_idr = last_snap["available_balance"]
+                    else:
+                        total_idr = 0
+                        free_idr = 0
         else:
             total_idr = equity
             free_idr = equity - sum(t["cost"] for t in open_trades)
@@ -248,9 +276,24 @@ class PositionTracker:
 
         # Daily drawdown
         # The original instruction implies a property, but the context is a local calculation.
-        # We'll apply the safe division logic to the existing calculation.
-        current_total_equity = total_idr + total_unrealized
-        if self._initial_equity == 0: # Handle initial equity being zero to prevent division by zero
+        # ─── Total Equity (Formula yang Benar) ───
+        # Equity = saldo IDR bebas + nilai semua posisi terbuka
+        # Nilai posisi = cost (modal yang dipakai) + unrealized PnL
+        # Ini memastikan saat beli XRP pakai IDR, equity TIDAK berkurang
+        # (IDR turun, tapi nilai XRP bertambah sebesar yang sama)
+        total_position_value = sum(pos.cost + pos.unrealized_pnl for pos in positions)
+        current_total_equity = free_idr + total_position_value
+
+        # Jika tidak ada posisi terbuka: equity = saldo IDR saja
+        if not positions:
+            current_total_equity = total_idr
+
+        # Track initial equity hanya sekali di awal hari/startup
+        if self._initial_equity is None or self._initial_equity == 0:
+            self._initial_equity = current_total_equity
+
+        # Daily drawdown berdasarkan realized loss hari ini
+        if self._initial_equity == 0:
             daily_dd = 0.0
         else:
             daily_dd = abs(min(0, realized_today)) / self._initial_equity * 100

@@ -39,8 +39,8 @@ class VolumeAnomalyResponse(BaseModel):
     timestamp: str
 
 class ChartDataPoint(BaseModel):
-    time: str # Format "YYYY-MM-DD" or timestamp
-    value: float # Equity or PnL
+    time: str
+    value: float
 
 class CandleResponse(BaseModel):
     timestamp: str
@@ -49,3 +49,30 @@ class CandleResponse(BaseModel):
     low: float
     close: float
     volume: float
+
+class TradeHistoryResponse(BaseModel):
+    id: int
+    symbol: str
+    side: str
+    entry_price: float
+    exit_price: Optional[float] = None
+    amount: float
+    cost: float
+    pnl: Optional[float] = None
+    pnl_percent: Optional[float] = None
+    status: str          # 'open' or 'closed'
+    mode: str            # 'paper' or 'live'
+    close_reason: Optional[str] = None
+    opened_at: str
+    closed_at: Optional[str] = None
+    duration_minutes: Optional[float] = None
+
+class DailyTargetResponse(BaseModel):
+    target_pct: float           # e.g. 1.0 (%)
+    target_idr: float           # e.g. 96.79 IDR (1% of 9679)
+    realized_pnl_today: float   # sum of closed PnL today
+    progress_pct: float         # realized / target * 100 (capped at 100)
+    status: str                 # "HUNTING" | "TARGET_MET" | "DRAWDOWN_LIMIT" | "NO_TRADES"
+    daily_drawdown_pct: float
+    drawdown_limit_pct: float
+    equity: float

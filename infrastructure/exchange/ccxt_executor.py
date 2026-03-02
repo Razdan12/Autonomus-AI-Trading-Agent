@@ -3,8 +3,12 @@ Order Executor - Executes trades via ccxt (paper or live mode).
 """
 
 import time
+import math
 from datetime import datetime
 from typing import Dict, Any, Optional
+
+# Indodax minimum order size in IDR
+MIN_ORDER_IDR = 10_000
 
 from config.settings import Config
 from core.interfaces.market_data_port import IMarketData
@@ -87,12 +91,37 @@ class OrderExecutor(IExecutor):
             logger.error("❌ Cannot execute live order: No API key configured")
             return None
 
+        # ─── Pre-flight: Minimum Order Validation ───
+        if plan.cost < MIN_ORDER_IDR:
+            logger.error(
+                f"❌ Order DITOLAK {plan.symbol}: Cost {plan.cost:,.0f} IDR "
+                f"< minimum order Indodax {MIN_ORDER_IDR:,} IDR. "
+                f"Top up saldo atau naikkan RISK_PER_TRADE."
+            )
+            return None
+
+        # ─── Pre-flight: Floor amount for cheap coins (harga < 1 IDR) ───
+        # Indodax menolak decimal amount untuk coin seperti PEPE
+        final_amount = plan.position_size
+        if plan.entry_price > 0 and plan.entry_price < 1.0:
+            final_amount = math.floor(plan.position_size)
+            if final_amount <= 0:
+                logger.error(
+                    f"❌ Order DITOLAK {plan.symbol}: Amount setelah floor = 0 "
+                    f"(original: {plan.position_size:.2f}). Saldo tidak cukup."
+                )
+                return None
+            logger.info(
+                f"🔢 Flooring amount {plan.symbol}: {plan.position_size:.8f} → {final_amount} "
+                f"(coin harga {plan.entry_price:.6f} IDR < 1 IDR)"
+            )
+
         max_retries = 3
         for attempt in range(max_retries):
             try:
                 logger.info(
                     f"⚡ LIVE ORDER: {plan.side.upper()} {plan.symbol} | "
-                    f"Amount: {plan.position_size:.8f} | "
+                    f"Amount: {final_amount} | "
                     f"Attempt {attempt + 1}/{max_retries}"
                 )
 
@@ -153,15 +182,15 @@ class OrderExecutor(IExecutor):
                     symbol=plan.symbol,
                     type=order_type,
                     side=plan.side,
-                    amount=plan.position_size,
+                    amount=final_amount,
                     price=plan.entry_price,
                     params=order_params
                 )
 
                 # Indodax CCXT often returns None for average/price/filled/cost on market orders
                 order_price = order.get("average") or order.get("price") or plan.entry_price
-                order_amount = order.get("filled") or plan.position_size
-                order_cost = order.get("cost") or plan.cost
+                order_amount = order.get("filled") or final_amount
+                order_cost = order.get("cost") or (order_amount * order_price)
 
                 # Save to database
                 trade = {

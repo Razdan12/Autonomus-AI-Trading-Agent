@@ -6,7 +6,9 @@ from presentation.api.database import (
     get_recent_signals,
     get_volume_anomalies,
     get_equity_curve,
-    get_latest_candles
+    get_latest_candles,
+    get_trade_history,
+    get_daily_target_status,
 )
 from presentation.api.models import (
     PortfolioSummaryResponse,
@@ -14,20 +16,22 @@ from presentation.api.models import (
     SignalResponse,
     VolumeAnomalyResponse,
     ChartDataPoint,
-    CandleResponse
+    CandleResponse,
+    TradeHistoryResponse,
+    DailyTargetResponse,
 )
 from typing import List
 
 app = FastAPI(
     title="AI Trading Agent Dashboard API",
     description="Backend API for the AI Trading Web Dashboard",
-    version="1.0.0"
+    version="2.0.0"
 )
 
 # Enable CORS for React Frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production, restrict to localhost:5173
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -61,6 +65,15 @@ def api_equity_curve():
 @app.get("/api/candles/{symbol}", response_model=List[CandleResponse])
 def api_candles(symbol: str, timeframe: str = "1h", limit: int = 100):
     """Get historical OHLCV candles for charting."""
-    # Handle api paths like SOL-IDR converting it to SOL/IDR 
     symbol = symbol.replace('-', '/').upper()
     return get_latest_candles(symbol, timeframe, limit)
+
+@app.get("/api/trades", response_model=List[TradeHistoryResponse])
+def api_trade_history(limit: int = 50):
+    """Get all trade history (open + closed), newest first."""
+    return get_trade_history(limit)
+
+@app.get("/api/daily-target", response_model=DailyTargetResponse)
+def api_daily_target():
+    """Get today's trading target status and progress."""
+    return get_daily_target_status()

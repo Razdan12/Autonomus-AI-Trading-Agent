@@ -7,7 +7,13 @@ import {
   TrendingDown,
   AlertCircle,
   BarChart2,
-  List as ListIcon
+  List as ListIcon,
+  Target,
+  History,
+  LayoutDashboard,
+  CheckCircle2,
+  XCircle,
+  Clock,
 } from 'lucide-react';
 import ReactApexChart from 'react-apexcharts';
 
@@ -53,25 +59,60 @@ interface Signal {
   timestamp: string;
 }
 
+interface TradeHistory {
+  id: number;
+  symbol: string;
+  side: string;
+  entry_price: number;
+  exit_price: number | null;
+  amount: number;
+  cost: number;
+  pnl: number | null;
+  pnl_percent: number | null;
+  status: string;
+  mode: string;
+  close_reason: string | null;
+  opened_at: string;
+  closed_at: string | null;
+  duration_minutes: number | null;
+}
+
+interface DailyTarget {
+  target_pct: number;
+  target_idr: number;
+  realized_pnl_today: number;
+  progress_pct: number;
+  status: string;
+  daily_drawdown_pct: number;
+  drawdown_limit_pct: number;
+  equity: number;
+}
+
+type Tab = 'overview' | 'history';
+
 function App() {
   const [portfolio, setPortfolio] = useState<PortfolioSummary | null>(null);
   const [positions, setPositions] = useState<Position[]>([]);
   const [anomalies, setAnomalies] = useState<VolumeAnomaly[]>([]);
   const [_, setSignals] = useState<Signal[]>([]);
   const [equityData, setEquityData] = useState<any[]>([]);
-
+  const [tradeHistory, setTradeHistory] = useState<TradeHistory[]>([]);
+  const [dailyTarget, setDailyTarget] = useState<DailyTarget | null>(null);
+  const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [loading, setLoading] = useState(true);
+  const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
 
-  // Auto Refresh Interval
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [portRes, posRes, anomRes, sigRes, eqRes] = await Promise.all([
+        const [portRes, posRes, anomRes, sigRes, eqRes, tradeRes, targetRes] = await Promise.all([
           axios.get(`${API_BASE}/portfolio`),
           axios.get(`${API_BASE}/positions`),
           axios.get(`${API_BASE}/volume`),
           axios.get(`${API_BASE}/signals`),
-          axios.get(`${API_BASE}/equity`)
+          axios.get(`${API_BASE}/equity`),
+          axios.get(`${API_BASE}/trades?limit=50`),
+          axios.get(`${API_BASE}/daily-target`),
         ]);
 
         setPortfolio(portRes.data);
@@ -79,259 +120,459 @@ function App() {
         setAnomalies(anomRes.data);
         setSignals(sigRes.data);
         setEquityData(eqRes.data);
-
+        setTradeHistory(tradeRes.data);
+        setDailyTarget(targetRes.data);
+        setLastUpdate(new Date());
       } catch (err) {
-        console.error("Failed to fetch data", err);
+        console.error('Failed to fetch data', err);
       } finally {
         setLoading(false);
       }
     };
 
     fetchData();
-    const interval = setInterval(fetchData, 10000); // refresh every 10s
+    const interval = setInterval(fetchData, 10000);
     return () => clearInterval(interval);
   }, []);
 
-  const formatIDR = (val: number) => {
-    return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(val);
+  const formatIDR = (val: number) =>
+    new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val);
+
+  const formatUSD = (val: number) =>
+    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(val);
+
+  const formatDuration = (mins: number | null) => {
+    if (mins === null) return '—';
+    if (mins < 60) return `${mins}m`;
+    return `${Math.floor(mins / 60)}h ${Math.round(mins % 60)}m`;
   };
 
-  const formatUSD = (val: number) => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(val);
+  const formatDate = (iso: string | null) => {
+    if (!iso) return '—';
+    try {
+      return new Date(iso).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+    } catch { return iso; }
+  };
+
+  const getDailyTargetConfig = (status: string) => {
+    switch (status) {
+      case 'TARGET_MET':
+        return { icon: <CheckCircle2 className="w-5 h-5 text-[#10b981]" />, label: '✅ Target Tercapai!', barColor: '#10b981', badgeClass: 'bg-[#10b981]/15 text-[#10b981] border-[#10b981]/30' };
+      case 'DRAWDOWN_LIMIT':
+        return { icon: <XCircle className="w-5 h-5 text-[#ef4444]" />, label: '⛔ Drawdown Limit', barColor: '#ef4444', badgeClass: 'bg-[#ef4444]/15 text-[#ef4444] border-[#ef4444]/30' };
+      case 'HUNTING':
+        return { icon: <Target className="w-5 h-5 text-[#f59e0b]" />, label: '🎯 Mengejar Target', barColor: '#f59e0b', badgeClass: 'bg-[#f59e0b]/15 text-[#f59e0b] border-[#f59e0b]/30' };
+      default:
+        return { icon: <Clock className="w-5 h-5 text-gray-400" />, label: '⏳ Belum Ada Trade', barColor: '#64748b', badgeClass: 'bg-gray-700/50 text-gray-400 border-gray-600/30' };
+    }
   };
 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[#0b1120]">
-        <div className="animate-pulse flex flex-col items-center">
-          <Activity className="w-12 h-12 text-[#10b981] mb-4 animate-spin" />
+        <div className="flex flex-col items-center gap-4">
+          <Activity className="w-12 h-12 text-[#10b981] animate-spin" />
           <h2 className="text-xl font-bold text-gray-200">Initializing Core Engine...</h2>
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="min-h-screen bg-[#0b1120] text-gray-100 p-6 font-sans">
+  const targetCfg = getDailyTargetConfig(dailyTarget?.status || 'NO_TRADES');
+  const equityIsZero = !portfolio || portfolio.total_equity === 0;
 
-      {/* HEADER */}
-      <header className="flex justify-between items-center mb-8">
-        <div>
-          <h1 className="text-3xl font-extrabold flex items-center gap-3">
-            <span className="text-gradient">AI Trading Node</span>
-            <span className="bg-[#10b981]/10 text-[#10b981] text-xs py-1 px-3 rounded-full border border-[#10b981]/20">Active</span>
-          </h1>
-          <p className="text-gray-400 text-sm mt-1">Indodax Autonomous Trading System</p>
+  return (
+    <div className="min-h-screen bg-[#0b1120] text-gray-100 font-sans">
+
+      {/* ── HEADER ── */}
+      <header className="px-6 py-4 flex justify-between items-center border-b border-gray-800/60 sticky top-0 z-20 bg-[#0b1120]/80 backdrop-blur">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-[#10b981]/20 flex items-center justify-center">
+            <Activity className="w-5 h-5 text-[#10b981]" />
+          </div>
+          <div>
+            <h1 className="text-xl font-extrabold text-white tracking-tight">AI Trading Node</h1>
+            <p className="text-gray-500 text-xs">Indodax Autonomous System</p>
+          </div>
+          <span className="ml-2 bg-[#10b981]/10 text-[#10b981] text-[10px] py-0.5 px-2 rounded-full border border-[#10b981]/20 font-medium">LIVE</span>
         </div>
         <div className="text-right">
-          <p className="text-sm text-gray-400">System Time</p>
-          <p className="font-mono text-lg">{new Date().toLocaleTimeString()}</p>
+          <p className="text-xs text-gray-500">Last Update</p>
+          <p className="font-mono text-sm text-gray-300">{lastUpdate.toLocaleTimeString()}</p>
         </div>
       </header>
 
-      {/* METRIC CARDS */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <div className="glass-card p-6 rounded-2xl">
-          <div className="flex justify-between items-start mb-4">
-            <div>
-              <p className="text-gray-400 text-sm">Total Equity</p>
-              <h3 className="text-2xl font-bold mt-1 text-white">{formatIDR(portfolio?.total_equity || 0)}</h3>
-            </div>
-            <div className="p-3 bg-blue-500/10 rounded-xl">
-              <Wallet className="w-6 h-6 text-blue-400" />
-            </div>
-          </div>
-          <div className="flex gap-2 text-sm mt-2 font-medium">
-            <span className="text-gray-400">Available:</span>
-            <span>{formatIDR(portfolio?.available_balance || 0)}</span>
-          </div>
-        </div>
+      <div className="p-6">
 
-        <div className="glass-card p-6 rounded-2xl">
-          <div className="flex justify-between items-start mb-4">
-            <div>
-              <p className="text-gray-400 text-sm">Unrealized PnL</p>
-              <h3 className={`text-2xl font-bold mt-1 ${(portfolio?.unrealized_pnl || 0) >= 0 ? 'text-[#10b981]' : 'text-[#ef4444]'}`}>
-                {(portfolio?.unrealized_pnl || 0) >= 0 ? '+' : ''}{formatIDR(portfolio?.unrealized_pnl || 0)}
-              </h3>
-            </div>
-            <div className={`p-3 rounded-xl ${(portfolio?.unrealized_pnl || 0) >= 0 ? 'bg-[#10b981]/10' : 'bg-[#ef4444]/10'}`}>
-              {(portfolio?.unrealized_pnl || 0) >= 0 ? <TrendingUp className="w-6 h-6 text-[#10b981]" /> : <TrendingDown className="w-6 h-6 text-[#ef4444]" />}
-            </div>
-          </div>
-        </div>
+        {/* ── METRIC CARDS ── */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
 
-        <div className="glass-card p-6 rounded-2xl">
-          <div className="flex justify-between items-start mb-4">
-            <div>
-              <p className="text-gray-400 text-sm">Realized Today</p>
-              <h3 className={`text-2xl font-bold mt-1 ${(portfolio?.realized_pnl_today || 0) >= 0 ? 'text-[#10b981]' : 'text-[#ef4444]'}`}>
-                {(portfolio?.realized_pnl_today || 0) >= 0 ? '+' : ''}{formatIDR(portfolio?.realized_pnl_today || 0)}
-              </h3>
+          {/* Total Equity */}
+          <div className="glass-card p-5 rounded-2xl">
+            <div className="flex justify-between items-start mb-3">
+              <p className="text-gray-400 text-xs uppercase tracking-wider">Total Equity</p>
+              <div className="p-2 bg-blue-500/10 rounded-xl">
+                <Wallet className="w-5 h-5 text-blue-400" />
+              </div>
             </div>
-            <div className="p-3 bg-purple-500/10 rounded-xl">
-              <Activity className="w-6 h-6 text-purple-400" />
+            {equityIsZero ? (
+              <p className="text-sm text-yellow-400 font-medium">⏳ Menunggu data balance...</p>
+            ) : (
+              <h3 className="text-2xl font-bold text-white">{formatIDR(portfolio!.total_equity)}</h3>
+            )}
+            <div className="flex gap-2 text-xs mt-2 text-gray-400">
+              <span>Tersedia:</span>
+              <span className="text-gray-300">{formatIDR(portfolio?.available_balance || 0)}</span>
             </div>
           </div>
-        </div>
 
-        <div className="glass-card p-6 rounded-2xl">
-          <div className="flex justify-between items-start mb-4">
-            <div>
-              <p className="text-gray-400 text-sm">Active Exposure</p>
-              <h3 className="text-2xl font-bold mt-1 text-white">{portfolio?.open_positions || 0} Positions</h3>
+          {/* Unrealized PnL */}
+          <div className="glass-card p-5 rounded-2xl">
+            <div className="flex justify-between items-start mb-3">
+              <p className="text-gray-400 text-xs uppercase tracking-wider">Unrealized PnL</p>
+              <div className={`p-2 rounded-xl ${(portfolio?.unrealized_pnl || 0) >= 0 ? 'bg-[#10b981]/10' : 'bg-[#ef4444]/10'}`}>
+                {(portfolio?.unrealized_pnl || 0) >= 0
+                  ? <TrendingUp className="w-5 h-5 text-[#10b981]" />
+                  : <TrendingDown className="w-5 h-5 text-[#ef4444]" />}
+              </div>
             </div>
-            <div className="p-3 bg-orange-500/10 rounded-xl">
-              <AlertCircle className="w-6 h-6 text-orange-400" />
-            </div>
+            <h3 className={`text-2xl font-bold ${(portfolio?.unrealized_pnl || 0) >= 0 ? 'text-[#10b981]' : 'text-[#ef4444]'}`}>
+              {(portfolio?.unrealized_pnl || 0) >= 0 ? '+' : ''}{formatIDR(portfolio?.unrealized_pnl || 0)}
+            </h3>
+            <div className="text-xs mt-2 text-gray-400">Posisi terbuka saat ini</div>
           </div>
-          <div className="flex gap-2 text-sm mt-2">
-            <span className="text-gray-400">Drawdown:</span>
-            <span className={`${(portfolio?.daily_drawdown_pct || 0) > 3 ? 'text-[#ef4444]' : 'text-[#10b981]'}`}>
-              {portfolio?.daily_drawdown_pct.toFixed(2)}%
+
+          {/* Realized Today */}
+          <div className="glass-card p-5 rounded-2xl">
+            <div className="flex justify-between items-start mb-3">
+              <p className="text-gray-400 text-xs uppercase tracking-wider">Realized Today</p>
+              <div className="p-2 bg-purple-500/10 rounded-xl">
+                <Activity className="w-5 h-5 text-purple-400" />
+              </div>
+            </div>
+            <h3 className={`text-2xl font-bold ${(portfolio?.realized_pnl_today || 0) >= 0 ? 'text-[#10b981]' : 'text-[#ef4444]'}`}>
+              {(portfolio?.realized_pnl_today || 0) >= 0 ? '+' : ''}{formatIDR(portfolio?.realized_pnl_today || 0)}
+            </h3>
+            <div className="text-xs mt-2 text-gray-400">Profit/Loss hari ini (closed)</div>
+          </div>
+
+          {/* Daily Target */}
+          <div className="glass-card p-5 rounded-2xl">
+            <div className="flex justify-between items-start mb-3">
+              <p className="text-gray-400 text-xs uppercase tracking-wider">Daily Target</p>
+              {targetCfg.icon}
+            </div>
+            <div className="flex items-baseline gap-1 mb-1">
+              <span className="text-2xl font-bold text-white">
+                {Math.max(0, dailyTarget?.progress_pct || 0).toFixed(0)}%
+              </span>
+              <span className="text-xs text-gray-500">/ {dailyTarget?.target_pct.toFixed(1)}% target</span>
+            </div>
+            {/* Progress Bar */}
+            <div className="w-full bg-gray-700/50 rounded-full h-1.5 mt-2 mb-2 overflow-hidden">
+              <div
+                className="h-1.5 rounded-full transition-all duration-700"
+                style={{
+                  width: `${Math.min(100, Math.max(0, dailyTarget?.progress_pct || 0))}%`,
+                  backgroundColor: targetCfg.barColor,
+                }}
+              />
+            </div>
+            <div className="flex justify-between text-[10px] text-gray-500">
+              <span>{formatIDR(dailyTarget?.realized_pnl_today || 0)}</span>
+              <span>Target: {formatIDR(dailyTarget?.target_idr || 0)}</span>
+            </div>
+            <span className={`mt-2 inline-block text-[10px] px-2 py-0.5 rounded-full border ${targetCfg.badgeClass}`}>
+              {targetCfg.label}
             </span>
           </div>
+
         </div>
-      </div>
 
-      {/* CHARTS ROW */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-
-        {/* EQUITY CURVE (APEXCHARTS) */}
-        <div className="lg:col-span-2 glass-card px-8 py-6 rounded-2xl flex flex-col">
-          <div className="flex items-center gap-2 mb-6">
-            <BarChart2 className="w-5 h-5 text-gray-400" />
-            <h2 className="text-lg font-bold text-white tracking-wide">Equity Curve</h2>
+        {/* ── DRAWDOWN WARNING ── */}
+        {(dailyTarget?.daily_drawdown_pct || 0) > 3 && (
+          <div className="mb-6 flex items-center gap-3 bg-[#ef4444]/10 border border-[#ef4444]/30 text-[#ef4444] px-4 py-3 rounded-xl text-sm">
+            <AlertCircle className="w-5 h-5 shrink-0" />
+            <span>
+              <strong>Peringatan Drawdown:</strong> {dailyTarget?.daily_drawdown_pct.toFixed(2)}% dari limit {dailyTarget?.drawdown_limit_pct}%.
+              {(dailyTarget?.daily_drawdown_pct || 0) >= (dailyTarget?.drawdown_limit_pct || 5) && ' Trading dihentikan hari ini.'}
+            </span>
           </div>
-          <div className="h-[400px] w-full text-black">
-            {equityData.length > 0 ? (
-              <ReactApexChart
-                options={{
-                  chart: {
-                    type: 'area',
-                    background: 'transparent',
-                    toolbar: { show: false },
-                    animations: { enabled: false }
-                  },
-                  theme: { mode: 'dark' },
-                  colors: ['#3b82f6'],
-                  fill: {
-                    type: 'gradient',
-                    gradient: {
-                      shadeIntensity: 1,
-                      opacityFrom: 0.4,
-                      opacityTo: 0.05,
-                      stops: [0, 100]
-                    }
-                  },
-                  dataLabels: { enabled: false },
-                  stroke: { curve: 'smooth', width: 3 },
-                  xaxis: {
-                    type: 'datetime',
-                    labels: { style: { colors: '#94a3b8' } },
-                    axisBorder: { color: '#334155' },
-                    axisTicks: { color: '#334155' }
-                  },
-                  yaxis: {
-                    tooltip: { enabled: true },
-                    labels: {
-                      style: { colors: '#94a3b8' },
-                      formatter: (val) => `Rp ${(val / 1000000).toFixed(1)}M`
-                    }
-                  },
-                  grid: { borderColor: '#334155', strokeDashArray: 4 },
-                  tooltip: { theme: 'dark' }
-                }}
-                series={[{ name: 'Equity', data: equityData.map((d: any) => [new Date(d.time).getTime(), d.value]) }]}
-                type="area"
-                height="100%"
-              />
-            ) : (
-              <div className="h-full flex items-center justify-center text-gray-500">
-                <p>Not enough history recorded</p>
+        )}
+
+        {/* ── TAB NAVIGATION ── */}
+        <div className="flex gap-1 mb-6 p-1 bg-gray-800/50 rounded-xl w-fit">
+          <button
+            id="tab-overview"
+            onClick={() => setActiveTab('overview')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'overview' ? 'bg-[#10b981] text-white shadow-lg shadow-[#10b981]/20' : 'text-gray-400 hover:text-gray-200'
+              }`}
+          >
+            <LayoutDashboard className="w-4 h-4" />
+            Overview
+          </button>
+          <button
+            id="tab-history"
+            onClick={() => setActiveTab('history')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'history' ? 'bg-[#10b981] text-white shadow-lg shadow-[#10b981]/20' : 'text-gray-400 hover:text-gray-200'
+              }`}
+          >
+            <History className="w-4 h-4" />
+            Trade History
+            {tradeHistory.length > 0 && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${activeTab === 'history' ? 'bg-white/20' : 'bg-gray-700 text-gray-300'}`}>
+                {tradeHistory.length}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* ════════════════════ OVERVIEW TAB ════════════════════ */}
+        {activeTab === 'overview' && (
+          <>
+            {/* Charts Row */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+
+              {/* Equity Curve */}
+              <div className="lg:col-span-2 glass-card px-6 py-5 rounded-2xl">
+                <div className="flex items-center gap-2 mb-5">
+                  <BarChart2 className="w-4 h-4 text-gray-400" />
+                  <h2 className="text-base font-bold text-white">Equity Curve</h2>
+                </div>
+                <div className="h-[350px] w-full">
+                  {equityData.length > 0 ? (
+                    <ReactApexChart
+                      options={{
+                        chart: { type: 'area', background: 'transparent', toolbar: { show: false }, animations: { enabled: false } },
+                        theme: { mode: 'dark' },
+                        colors: ['#3b82f6'],
+                        fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.35, opacityTo: 0.02, stops: [0, 100] } },
+                        dataLabels: { enabled: false },
+                        stroke: { curve: 'smooth', width: 2 },
+                        xaxis: { type: 'datetime', labels: { style: { colors: '#64748b' } }, axisBorder: { color: '#1e293b' } },
+                        yaxis: {
+                          tooltip: { enabled: true },
+                          labels: { style: { colors: '#64748b' }, formatter: (val: number) => `Rp ${(val / 1000).toFixed(0)}K` },
+                        },
+                        grid: { borderColor: '#1e293b', strokeDashArray: 4 },
+                        tooltip: { theme: 'dark' },
+                      }}
+                      series={[{ name: 'Equity', data: equityData.map((d: any) => [new Date(d.time).getTime(), d.value]) }]}
+                      type="area"
+                      height="100%"
+                    />
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-gray-500 text-sm">
+                      📊 Belum ada histori equity yang tercatat
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Volume Anomaly Feed */}
+              <div className="glass-card px-5 py-5 rounded-2xl flex flex-col" style={{ maxHeight: '450px' }}>
+                <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-800/60">
+                  <Activity className="w-4 h-4 text-[#10b981]" />
+                  <h2 className="text-base font-bold text-white">Live Volume Feed</h2>
+                </div>
+                <div className="flex-1 overflow-y-auto space-y-3 pr-1" style={{ scrollbarWidth: 'thin' }}>
+                  {anomalies.length === 0 && (
+                    <p className="text-gray-500 text-sm text-center py-6">Tidak ada anomali terdeteksi</p>
+                  )}
+                  {anomalies.map((anom) => (
+                    <div key={anom.id} className="border-l-2 pl-3 py-0.5" style={{ borderColor: anom.side === 'buy' ? '#10b981' : '#ef4444' }}>
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="font-bold text-gray-200 text-sm">{anom.symbol}</span>
+                        <span className="text-[10px] text-gray-500">{anom.timestamp.split('T')[1]?.slice(0, 5)}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${anom.side === 'buy' ? 'bg-[#10b981]/10 text-[#10b981]' : 'bg-[#ef4444]/10 text-[#ef4444]'}`}>
+                          {anom.side.toUpperCase()}
+                        </span>
+                        <span className="text-gray-300 font-mono">{formatUSD(anom.amount_usd)}</span>
+                      </div>
+                      <p className="text-[10px] text-gray-600 mt-0.5 uppercase tracking-wider">{anom.type.replace('_', ' ')}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Active Positions */}
+            <div className="glass-card p-5 rounded-2xl">
+              <div className="flex items-center gap-2 mb-5">
+                <ListIcon className="w-4 h-4 text-gray-400" />
+                <h2 className="text-base font-bold text-white">Active Positions</h2>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-700 text-gray-400">{positions.length} open</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-700/40 text-[10px] uppercase tracking-wider text-gray-500">
+                      <th className="pb-3 px-3">Symbol</th>
+                      <th className="pb-3 px-3">Side</th>
+                      <th className="pb-3 px-3 text-right">Entry</th>
+                      <th className="pb-3 px-3 text-right">Current</th>
+                      <th className="pb-3 px-3 text-right">P&L</th>
+                      <th className="pb-3 px-3 text-right">Stop Loss</th>
+                      <th className="pb-3 px-3 text-right">Take Profit</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {positions.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="text-center py-8 text-gray-500 text-sm">
+                          Tidak ada posisi aktif
+                        </td>
+                      </tr>
+                    )}
+                    {positions.map(pos => (
+                      <tr key={pos.id} className="border-b border-gray-800/30 hover:bg-white/[0.02] transition-colors">
+                        <td className="py-3 px-3 font-bold text-white">{pos.symbol}</td>
+                        <td className="py-3 px-3">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${pos.side === 'buy' ? 'bg-[#10b981]/15 text-[#10b981]' : 'bg-[#ef4444]/15 text-[#ef4444]'}`}>
+                            {pos.side.toUpperCase()}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-right font-mono text-gray-300">{pos.entry_price.toLocaleString('id-ID')}</td>
+                        <td className="py-3 px-3 text-right font-mono text-gray-300">{pos.current_price.toLocaleString('id-ID')}</td>
+                        <td className={`py-3 px-3 text-right font-bold ${pos.unrealized_pnl >= 0 ? 'text-[#10b981]' : 'text-[#ef4444]'}`}>
+                          {pos.unrealized_pnl >= 0 ? '+' : ''}{pos.unrealized_pnl.toLocaleString('id-ID')}
+                          <span className="block text-[10px] font-normal mt-0.5 opacity-70">
+                            {pos.unrealized_pnl_pct >= 0 ? '+' : ''}{pos.unrealized_pnl_pct.toFixed(2)}%
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-right text-orange-400/70 font-mono text-xs">{pos.stop_loss.toLocaleString('id-ID')}</td>
+                        <td className="py-3 px-3 text-right text-blue-400/70 font-mono text-xs">{pos.take_profit.toLocaleString('id-ID')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ════════════════════ HISTORY TAB ════════════════════ */}
+        {activeTab === 'history' && (
+          <div className="glass-card p-5 rounded-2xl">
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-2">
+                <History className="w-4 h-4 text-gray-400" />
+                <h2 className="text-base font-bold text-white">Riwayat Semua Trade</h2>
+              </div>
+              <div className="flex gap-3 text-xs text-gray-500">
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-[#10b981] inline-block" />
+                  Profit
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-[#ef4444] inline-block" />
+                  Loss
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-blue-400 inline-block" />
+                  Open
+                </span>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-gray-700/40 text-[10px] uppercase tracking-wider text-gray-500">
+                    <th className="pb-3 px-3">#</th>
+                    <th className="pb-3 px-3">Symbol</th>
+                    <th className="pb-3 px-3">Side</th>
+                    <th className="pb-3 px-3">Mode</th>
+                    <th className="pb-3 px-3 text-right">Entry</th>
+                    <th className="pb-3 px-3 text-right">Exit</th>
+                    <th className="pb-3 px-3 text-right">Amount</th>
+                    <th className="pb-3 px-3 text-right">P&L</th>
+                    <th className="pb-3 px-3">Alasan Tutup</th>
+                    <th className="pb-3 px-3">Durasi</th>
+                    <th className="pb-3 px-3">Status</th>
+                    <th className="pb-3 px-3">Waktu Buka</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tradeHistory.length === 0 && (
+                    <tr>
+                      <td colSpan={12} className="text-center py-10 text-gray-500">
+                        Belum ada riwayat trade
+                      </td>
+                    </tr>
+                  )}
+                  {tradeHistory.map(trade => {
+                    const isOpen = trade.status === 'open';
+                    const isProfit = (trade.pnl ?? 0) >= 0;
+                    const rowBorderColor = isOpen ? '#3b82f6' : isProfit ? '#10b981' : '#ef4444';
+                    return (
+                      <tr
+                        key={trade.id}
+                        className="border-b border-gray-800/30 hover:bg-white/[0.02] transition-colors"
+                        style={{ borderLeft: `3px solid ${rowBorderColor}` }}
+                      >
+                        <td className="py-3 px-3 text-gray-500 font-mono text-xs">{trade.id}</td>
+                        <td className="py-3 px-3 font-bold text-white">{trade.symbol}</td>
+                        <td className="py-3 px-3">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${trade.side === 'buy' ? 'bg-[#10b981]/15 text-[#10b981]' : 'bg-[#ef4444]/15 text-[#ef4444]'}`}>
+                            {trade.side.toUpperCase()}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3">
+                          <span className={`px-2 py-0.5 rounded text-[10px] ${trade.mode === 'live' ? 'bg-orange-500/15 text-orange-400' : 'bg-gray-600/30 text-gray-400'}`}>
+                            {trade.mode.toUpperCase()}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-right font-mono text-gray-300 text-xs">{trade.entry_price.toLocaleString('id-ID')}</td>
+                        <td className="py-3 px-3 text-right font-mono text-gray-300 text-xs">
+                          {trade.exit_price ? trade.exit_price.toLocaleString('id-ID') : <span className="text-blue-400">Terbuka</span>}
+                        </td>
+                        <td className="py-3 px-3 text-right font-mono text-gray-400 text-xs">{trade.amount.toLocaleString('id-ID', { maximumFractionDigits: 4 })}</td>
+                        <td className={`py-3 px-3 text-right font-bold ${isOpen ? 'text-blue-400' : isProfit ? 'text-[#10b981]' : 'text-[#ef4444]'}`}>
+                          {isOpen ? '—' : (
+                            <>
+                              {isProfit ? '+' : ''}{(trade.pnl ?? 0).toLocaleString('id-ID', { maximumFractionDigits: 0 })}
+                              <span className="block text-[10px] font-normal opacity-70">
+                                {isProfit ? '+' : ''}{(trade.pnl_percent ?? 0).toFixed(2)}%
+                              </span>
+                            </>
+                          )}
+                        </td>
+                        <td className="py-3 px-3 text-xs text-gray-500 max-w-[160px] truncate" title={trade.close_reason || ''}>
+                          {trade.close_reason || '—'}
+                        </td>
+                        <td className="py-3 px-3 text-xs text-gray-400 font-mono">{formatDuration(trade.duration_minutes)}</td>
+                        <td className="py-3 px-3">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${isOpen ? 'bg-blue-500/15 text-blue-400' : isProfit ? 'bg-[#10b981]/15 text-[#10b981]' : 'bg-[#ef4444]/15 text-[#ef4444]'}`}>
+                            {isOpen ? 'OPEN' : isProfit ? 'PROFIT' : 'LOSS'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-[11px] text-gray-500 font-mono whitespace-nowrap">{formatDate(trade.opened_at)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Summary footer */}
+            {tradeHistory.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-gray-800/60 flex flex-wrap gap-6 text-xs text-gray-400">
+                <span>Total: <strong className="text-white">{tradeHistory.length} trade</strong></span>
+                <span>Closed: <strong className="text-white">{tradeHistory.filter(t => t.status === 'closed').length}</strong></span>
+                <span>Open: <strong className="text-blue-400">{tradeHistory.filter(t => t.status === 'open').length}</strong></span>
+                <span>Profit: <strong className="text-[#10b981]">{tradeHistory.filter(t => t.pnl !== null && t.pnl > 0).length}</strong></span>
+                <span>Loss: <strong className="text-[#ef4444]">{tradeHistory.filter(t => t.pnl !== null && t.pnl < 0).length}</strong></span>
+                <span>Total PnL: <strong className={(() => { const t = tradeHistory.reduce((a, t) => a + (t.pnl ?? 0), 0); return t >= 0 ? 'text-[#10b981]' : 'text-[#ef4444]'; })()}>
+                  {formatIDR(tradeHistory.reduce((a, t) => a + (t.pnl ?? 0), 0))}
+                </strong></span>
               </div>
             )}
           </div>
-        </div>
-
-        {/* VOLUME ANOMALIES FEED */}
-        <div className="glass-card px-6 py-6 rounded-2xl flex flex-col h-full min-h-[400px] max-h-[500px]">
-          <div className="flex items-center gap-2 mb-6 border-b border-gray-800/60 pb-4">
-            <Activity className="w-5 h-5 text-[#10b981]" />
-            <h2 className="text-lg font-bold text-white tracking-wide">Live Volume Feed</h2>
-          </div>
-          <div className="flex-1 overflow-y-auto space-y-3 pr-2 scrollbar-thin scrollbar-thumb-gray-800 scrollbar-track-transparent">
-            {anomalies.length === 0 && <p className="text-gray-500 text-center py-4">No recent anomalies detected</p>}
-
-            {anomalies.map((anom) => (
-              <div key={anom.id} className="border-l-2 pl-4 py-1" style={{ borderColor: anom.side === 'buy' ? '#10b981' : '#ef4444' }}>
-                <div className="flex justify-between items-start mb-1">
-                  <span className="font-bold text-gray-200 text-sm">{anom.symbol}</span>
-                  <span className="text-[11px] text-gray-500 font-medium">{anom.timestamp.split('T')[1].slice(0, 5)}</span>
-                </div>
-                <div className="flex items-center gap-2 text-sm mt-1">
-                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${anom.side === 'buy' ? 'bg-[#10b981]/10 text-[#10b981]' : 'bg-[#ef4444]/10 text-[#ef4444]'}`}>
-                    {anom.side.toUpperCase()}
-                  </span>
-                  <span className="text-gray-300 font-mono">{formatUSD(anom.amount_usd)}</span>
-                </div>
-                <p className="text-xs text-gray-500 mt-1 uppercase tracking-wider">{anom.type.replace('_', ' ')}</p>
-              </div>
-            ))}
-          </div>
-        </div>
+        )}
 
       </div>
-
-      {/* POSITIONS TABLE */}
-      <div className="glass-card p-6 rounded-2xl mb-8 overflow-hidden">
-        <div className="flex items-center gap-2 mb-6">
-          <ListIcon className="w-5 h-5 text-gray-400" />
-          <h2 className="text-lg font-bold text-white">Active Positions</h2>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-gray-700/50 text-xs uppercase tracking-wider text-gray-400">
-                <th className="pb-3 px-4">Symbol</th>
-                <th className="pb-3 px-4">Side</th>
-                <th className="pb-3 px-4 text-right">Entry Price</th>
-                <th className="pb-3 px-4 text-right">Current</th>
-                <th className="pb-3 px-4 text-right">P&L</th>
-                <th className="pb-3 px-4 text-right">Stop Loss</th>
-                <th className="pb-3 px-4 text-right">Take Profit</th>
-              </tr>
-            </thead>
-            <tbody className="text-sm">
-              {positions.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="text-center py-8 text-gray-500">No active positions holding</td>
-                </tr>
-              )}
-              {positions.map(pos => (
-                <tr key={pos.id} className="border-b border-gray-800/30 hover:bg-white/5 transition-colors">
-                  <td className="py-4 px-4 font-bold text-white">{pos.symbol}</td>
-                  <td className="py-4 px-4">
-                    <span className={`px-2 py-1 inline-block rounded text-xs font-bold ${pos.side === 'buy' ? 'bg-[#10b981]/20 text-[#10b981]' : 'bg-[#ef4444]/20 text-[#ef4444]'}`}>
-                      {pos.side.toUpperCase()}
-                    </span>
-                  </td>
-                  <td className="py-4 px-4 text-right font-mono text-gray-300">{pos.entry_price.toLocaleString('id-ID')}</td>
-                  <td className="py-4 px-4 text-right font-mono text-gray-300">{pos.current_price.toLocaleString('id-ID')}</td>
-                  <td className={`py-4 px-4 text-right font-bold ${pos.unrealized_pnl >= 0 ? 'text-[#10b981]' : 'text-[#ef4444]'}`}>
-                    {pos.unrealized_pnl >= 0 ? '+' : ''}{pos.unrealized_pnl.toLocaleString('id-ID')}
-                    <span className="block text-xs font-normal mt-0.5">{pos.unrealized_pnl_pct >= 0 ? '+' : ''}{pos.unrealized_pnl_pct.toFixed(2)}%</span>
-                  </td>
-                  <td className="py-4 px-4 text-right text-orange-400/80 font-mono">{pos.stop_loss.toLocaleString('id-ID')}</td>
-                  <td className="py-4 px-4 text-right text-blue-400/80 font-mono">{pos.take_profit.toLocaleString('id-ID')}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
     </div>
   );
 }

@@ -2,7 +2,11 @@ import sqlite3
 import os
 from datetime import datetime
 from typing import List, Dict, Any
-from presentation.api.models import PortfolioSummaryResponse, PositionResponse, SignalResponse, VolumeAnomalyResponse, ChartDataPoint, CandleResponse
+from presentation.api.models import (
+    PortfolioSummaryResponse, PositionResponse, SignalResponse,
+    VolumeAnomalyResponse, ChartDataPoint, CandleResponse,
+    TradeHistoryResponse, DailyTargetResponse
+)
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "trading_agent.db")
 
@@ -179,3 +183,117 @@ def get_latest_candles(symbol: str, timeframe: str = "1h", limit: int = 100) -> 
         ))
         
     return candles
+
+
+def get_trade_history(limit: int = 50) -> List[TradeHistoryResponse]:
+    """Get all trades (open + closed) ordered by most recent first."""
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        SELECT id, symbol, side, price, amount, cost,
+               stop_loss, take_profit, pnl, pnl_percent,
+               status, mode, close_reason,
+               opened_at, closed_at, close_price
+        FROM trades
+        ORDER BY opened_at DESC
+        LIMIT ?
+    """, (limit,))
+    rows = c.fetchall()
+    conn.close()
+
+    result = []
+    for r in rows:
+        # Calculate duration
+        duration_minutes = None
+        if r['closed_at'] and r['opened_at']:
+            try:
+                opened = datetime.fromisoformat(r['opened_at'].replace('Z', '+00:00'))
+                closed = datetime.fromisoformat(r['closed_at'].replace('Z', '+00:00'))
+                duration_minutes = round((closed - opened).total_seconds() / 60, 1)
+            except Exception:
+                duration_minutes = None
+
+        result.append(TradeHistoryResponse(
+            id=r['id'],
+            symbol=r['symbol'],
+            side=r['side'],
+            entry_price=float(r['price'] or 0),
+            exit_price=float(r['close_price']) if r['close_price'] else None,
+            amount=float(r['amount'] or 0),
+            cost=float(r['cost'] or 0),
+            pnl=float(r['pnl']) if r['pnl'] is not None else None,
+            pnl_percent=float(r['pnl_percent']) if r['pnl_percent'] is not None else None,
+            status=r['status'],
+            mode=r['mode'],
+            close_reason=r['close_reason'],
+            opened_at=str(r['opened_at']),
+            closed_at=str(r['closed_at']) if r['closed_at'] else None,
+            duration_minutes=duration_minutes,
+        ))
+    return result
+
+
+def get_daily_target_status() -> DailyTargetResponse:
+    """Calculate daily target progress based on today's realized PnL."""
+    from config.settings import Config
+    config = Config()
+
+    conn = get_db_connection()
+    c = conn.cursor()
+
+    # Realized PnL today
+    c.execute("""
+        SELECT SUM(pnl) as today_pnl
+        FROM trades
+        WHERE status = 'closed'
+        AND DATE(closed_at) = DATE('now')
+    """)
+    row = c.fetchone()
+    realized_pnl_today = float(row['today_pnl']) if row and row['today_pnl'] else 0.0
+
+    # Realized losses today (for drawdown calc)
+    c.execute("""
+        SELECT SUM(pnl) as today_loss
+        FROM trades
+        WHERE status = 'closed'
+        AND DATE(closed_at) = DATE('now')
+        AND pnl < 0
+    """)
+    row2 = c.fetchone()
+    realized_loss = abs(float(row2['today_loss']) if row2 and row2['today_loss'] else 0.0)
+
+    # Latest equity from snapshot
+    c.execute("SELECT total_equity FROM portfolio_snapshots ORDER BY snapshot_at DESC LIMIT 1")
+    snap = c.fetchone()
+    conn.close()
+
+    equity = float(snap['total_equity']) if snap and snap['total_equity'] else 0.0
+
+    target_pct = config.risk.daily_target_profit_pct * 100  # e.g. 1.0
+    target_idr = equity * config.risk.daily_target_profit_pct
+
+    drawdown_limit_pct = config.risk.daily_drawdown_limit * 100
+    daily_drawdown_pct = (realized_loss / equity * 100) if equity > 0 else 0.0
+
+    # Determine status
+    if daily_drawdown_pct >= drawdown_limit_pct:
+        status = "DRAWDOWN_LIMIT"
+    elif target_idr > 0 and realized_pnl_today >= target_idr:
+        status = "TARGET_MET"
+    elif realized_pnl_today == 0:
+        status = "NO_TRADES"
+    else:
+        status = "HUNTING"
+
+    progress_pct = min(100.0, (realized_pnl_today / target_idr * 100) if target_idr > 0 else 0.0)
+
+    return DailyTargetResponse(
+        target_pct=round(target_pct, 2),
+        target_idr=round(target_idr, 2),
+        realized_pnl_today=round(realized_pnl_today, 2),
+        progress_pct=round(progress_pct, 2),
+        status=status,
+        daily_drawdown_pct=round(daily_drawdown_pct, 2),
+        drawdown_limit_pct=round(drawdown_limit_pct, 2),
+        equity=round(equity, 2),
+    )
