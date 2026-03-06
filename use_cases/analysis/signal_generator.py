@@ -124,22 +124,38 @@ class SignalGenerator:
         symbol = tech.symbol if tech else volume.symbol
 
         # ──── ANTI-RETAIL-PANIC LOGIC ────
-        # If volume accumulates but technical is bearish → HOLD (don't panic sell)
+        # If volume accumulates but technical is bearish → Buy the dip if Whale is strong
         if tech and tech.trend == "BEARISH" and volume.net_flow == "ACCUMULATING":
-            confidence = volume.confidence * 0.5
-            reason = (
-                f"� ANTI-PANIC: Harga turun ({tech.trend}) tapi terjadi AKUMULASI | "
-                f"Imbalance: {volume.imbalance_score:+.3f} | "
-                f"→ HOLD — Ikuti smart money, abaikan kepanikan ritel"
-            )
-            return TradingSignal(
-                symbol=symbol,
-                action="HOLD",
-                confidence=confidence,
-                reason=reason,
-                technical=tech,
-                volume=volume,
-            )
+            if volume.whale_score >= 7:
+                confidence = round(volume.confidence * 0.7, 2)
+                reason = (
+                    f"🟢 ANTI-PANIC BUY (Whale {volume.whale_score}/10): Harga turun ({tech.trend}) tapi Whale AKUMULASI | "
+                    f"Imbalance: {volume.imbalance_score:+.3f} | "
+                    f"→ BUY THE DIP — Ikuti smart money, abaikan kepanikan ritel. {volume.whale_reason}"
+                )
+                return TradingSignal(
+                    symbol=symbol,
+                    action="BUY",
+                    confidence=confidence,
+                    reason=reason,
+                    technical=tech,
+                    volume=volume,
+                )
+            else:
+                confidence = round(volume.confidence * 0.5, 2)
+                reason = (
+                    f"🛡️ ANTI-PANIC HOLD: Harga turun ({tech.trend}) & Akumulasi lemah (Whale {volume.whale_score}/10) | "
+                    f"Imbalance: {volume.imbalance_score:+.3f} | "
+                    f"→ HOLD — Jangan panic sell, tapi belum cukup kuat untuk buy"
+                )
+                return TradingSignal(
+                    symbol=symbol,
+                    action="HOLD",
+                    confidence=confidence,
+                    reason=reason,
+                    technical=tech,
+                    volume=volume,
+                )
 
         # ──── ALIGNED SIGNALS ────
 
@@ -391,11 +407,15 @@ class SignalGenerator:
             primary.confidence = min(1.0, primary.confidence * 1.2)
             primary.reason += " | 🚀 STRONG BULL REGIME: Sinyal Buy dikuatkan"
         elif market_regime == "TRENDING_BEAR":
-            # Market Correlation Veto: Don't buy anything if BTC is crashing
+            # Market Correlation Veto: Don't buy anything if BTC is crashing, UNLESS Whale is massive
             if primary.action in ("BUY", "STRONG_BUY"):
-                primary.action = "HOLD"
-                primary.confidence *= 0.2
-                primary.reason = f"🚨 VETO KORELASI BTC: Pasar global Bearish tajam. Menghindari entry di {primary.symbol} || " + primary.reason
+                if volume_signal and volume_signal.whale_score >= 8:
+                    primary.confidence *= 0.8
+                    primary.reason += f" | 🐋 WHALE OVERRIDE: Pasar Bearish tajam tapi Whale sangat kuat ({volume_signal.whale_score}/10). Mengijinkan BUY."
+                else:
+                    primary.action = "HOLD"
+                    primary.confidence *= 0.2
+                    primary.reason = f"🚨 VETO KORELASI BTC: Pasar global Bearish tajam. Menghindari entry di {primary.symbol} || " + primary.reason
             else:
                 primary.confidence = min(1.0, primary.confidence * 1.2)
                 primary.reason += " | 🩸 STRONG BEAR REGIME: Sinyal Sell dikuatkan"

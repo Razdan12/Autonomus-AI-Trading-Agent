@@ -14,6 +14,7 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
+  Terminal,
 } from 'lucide-react';
 import ReactApexChart from 'react-apexcharts';
 
@@ -88,7 +89,7 @@ interface DailyTarget {
   equity: number;
 }
 
-type Tab = 'overview' | 'history';
+type Tab = 'overview' | 'history' | 'logs';
 
 function App() {
   const [portfolio, setPortfolio] = useState<PortfolioSummary | null>(null);
@@ -98,6 +99,7 @@ function App() {
   const [equityData, setEquityData] = useState<any[]>([]);
   const [tradeHistory, setTradeHistory] = useState<TradeHistory[]>([]);
   const [dailyTarget, setDailyTarget] = useState<DailyTarget | null>(null);
+  const [agentLogs, setAgentLogs] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [chartFilter, setChartFilter] = useState<'1' | '7' | '30' | 'all'>('1');
   const [loading, setLoading] = useState(true);
@@ -108,7 +110,7 @@ function App() {
       try {
         const equityUrl = chartFilter === 'all' ? `${API_BASE}/equity` : `${API_BASE}/equity?days=${chartFilter}`;
 
-        const [portRes, posRes, anomRes, sigRes, eqRes, tradeRes, targetRes] = await Promise.all([
+        const [portRes, posRes, anomRes, sigRes, eqRes, tradeRes, targetRes, logRes] = await Promise.all([
           axios.get(`${API_BASE}/portfolio`),
           axios.get(`${API_BASE}/positions`),
           axios.get(`${API_BASE}/volume`),
@@ -116,6 +118,7 @@ function App() {
           axios.get(equityUrl),
           axios.get(`${API_BASE}/trades?limit=50`),
           axios.get(`${API_BASE}/daily-target`),
+          axios.get(`${API_BASE}/logs?limit=150`),
         ]);
 
         setPortfolio(portRes.data);
@@ -125,6 +128,7 @@ function App() {
         setEquityData(eqRes.data);
         setTradeHistory(tradeRes.data);
         setDailyTarget(targetRes.data);
+        setAgentLogs(logRes.data);
         setLastUpdate(new Date());
       } catch (err) {
         console.error('Failed to fetch data', err);
@@ -339,6 +343,15 @@ function App() {
                 {tradeHistory.length}
               </span>
             )}
+          </button>
+          <button
+            id="tab-logs"
+            onClick={() => setActiveTab('logs')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'logs' ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/20' : 'text-gray-400 hover:text-gray-200'
+              }`}
+          >
+            <Terminal className="w-4 h-4" />
+            Live Logs
           </button>
         </div>
 
@@ -600,6 +613,53 @@ function App() {
                 </strong></span>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ════════════════════ LOGS TAB ════════════════════ */}
+        {activeTab === 'logs' && (
+          <div className="glass-card p-5 rounded-2xl flex flex-col" style={{ height: '70vh' }}>
+            <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-800/60">
+              <div className="flex items-center gap-2">
+                <Terminal className="w-5 h-5 text-blue-400" />
+                <h2 className="text-lg font-bold text-white">Console Logs (Live)</h2>
+                <span className="ml-2 bg-blue-500/10 text-blue-400 text-[10px] px-2 py-0.5 rounded-full ring-1 ring-blue-500/20">
+                  Auto-Refresh
+                </span>
+              </div>
+            </div>
+            
+            <div 
+              className="flex-1 overflow-y-auto bg-black/60 rounded-xl p-4 font-mono text-[11px] leading-relaxed ring-1 ring-white/5 shadow-inner"
+              style={{ scrollbarWidth: 'thin' }}
+            >
+              {agentLogs.length === 0 ? (
+                <div className="text-gray-500 text-center py-10">Membaca log dari server...</div>
+              ) : (
+                <div className="flex flex-col gap-1 pb-4">
+                  {agentLogs.map((log, i) => {
+                    let logColor = 'text-gray-300';
+                    let bgHilite = '';
+                    
+                    if (log.includes('INFO')) logColor = 'text-blue-300';
+                    if (log.includes('WARNING') || log.includes('🚨')) logColor = 'text-yellow-400';
+                    if (log.includes('ERROR')) {
+                      logColor = 'text-red-400 font-bold';
+                      bgHilite = 'bg-red-500/10 pl-2 -ml-2 rounded';
+                    }
+                    if (log.includes('WHALE TRADE') || log.includes('✅')) logColor = 'text-[#10b981]';
+                    
+                    return (
+                      <div key={i} className={`break-words whitespace-pre-wrap ${logColor} ${bgHilite}`}>
+                        <span className="opacity-40 select-none mr-2">[{i+1}]</span>
+                        {log}
+                      </div>
+                    );
+                  })}
+                  <div className="text-gray-600 mt-4 text-center">--- End of Feed ---</div>
+                </div>
+              )}
+            </div>
           </div>
         )}
 

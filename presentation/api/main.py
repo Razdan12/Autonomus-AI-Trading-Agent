@@ -77,3 +77,19 @@ def api_trade_history(limit: int = 50):
 def api_daily_target():
     """Get today's trading target status and progress."""
     return get_daily_target_status()
+
+@app.get("/api/logs")
+def api_logs(limit: int = 150):
+    """Get the latest raw logs from the backend."""
+    import os
+    import collections
+    log_file = "logs/trading_agent.log"
+    if not os.path.exists(log_file):
+        return []
+    try:
+        with open(log_file, "r", encoding="utf-8") as f:
+            # Efficiently get the last `limit` lines without loading the whole file
+            lines = collections.deque(f, limit)
+            return list(lines)
+    except Exception as e:
+        return [f"Error reading logs: {e}"]
