@@ -19,7 +19,7 @@ class CryptoPanicClient(INewsData):
     def __init__(self, config: Config):
         self.config = config
         self.api_key = config.news.cryptopanic_api_key
-        self.base_url = "https://cryptopanic.com/api/v1/posts/"
+        self.base_url = "https://cryptopanic.com/api/developer/v2/posts/"
         self.session = None
 
     async def _get_session(self) -> aiohttp.ClientSession:
