@@ -195,6 +195,22 @@ class MarketDataFetcher(IMarketData):
             logger.error(f"❌ Failed to fetch ticker for {symbol}: {e}")
             raise
 
+    async def fetch_tickers(self) -> Dict[str, Any]:
+        """
+        Fetch tickers for all available markets efficiently.
+        Useful for market scanning and selecting top volume coins dynamically.
+        """
+        await self._ensure_markets()
+        
+        try:
+            logger.info("📡 Fetching all tickers for market scan...")
+            tickers = await self.exchange.fetch_tickers()
+            logger.info(f"✅ Received {len(tickers)} tickers from Indodax.")
+            return tickers
+        except Exception as e:
+            logger.error(f"❌ Failed to fetch all tickers: {e}")
+            raise
+
     async def fetch_order_book(self, symbol: str, limit: int = 20) -> Dict[str, Any]:
         """
         Fetch order book depth.

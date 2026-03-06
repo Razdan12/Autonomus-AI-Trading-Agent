@@ -73,6 +73,8 @@ class AIConfig:
 class TradingConfig:
     mode: str = "paper"                   # "paper" or "live"
     pairs: List[str] = field(default_factory=lambda: ["BTC/IDR", "ETH/IDR", "SOL/IDR", "ADA/IDR", "DOGE/IDR", "XRP/IDR", "PEPE/IDR"])
+    is_dynamic_pairs: bool = False
+    dynamic_pair_count: int = 5
     timeframe: str = "1h"
     analysis_interval_minutes: int = 60
 
@@ -123,10 +125,25 @@ class Config:
             max_slippage_pct=float(os.getenv("MAX_SLIPPAGE_PCT", "0.002")),
         )
 
-        pairs_str = os.getenv("TRADING_PAIRS", "BTC/IDR,ETH/IDR,SOL/IDR,ADA/IDR,DOGE/IDR,XRP/IDR,PEPE/IDR")
+        pairs_str = os.getenv("TRADING_PAIRS", "BTC/IDR,ETH/IDR,SOL/IDR,ADA/IDR,DOGE/IDR,XRP/IDR,PEPE/IDR").strip()
+        
+        is_dynamic = False
+        dynamic_count = 5
+        config_pairs = []
+        
+        if pairs_str.upper().startswith("DYNAMIC"):
+            is_dynamic = True
+            parts = pairs_str.split(":")
+            if len(parts) > 1 and parts[1].isdigit():
+                dynamic_count = int(parts[1])
+        else:
+            config_pairs = [p.strip() for p in pairs_str.split(",") if p.strip()]
+
         self.trading = TradingConfig(
             mode=os.getenv("TRADING_MODE", "paper"),
-            pairs=[p.strip() for p in pairs_str.split(",")],
+            pairs=config_pairs,
+            is_dynamic_pairs=is_dynamic,
+            dynamic_pair_count=dynamic_count,
             timeframe=os.getenv("TIMEFRAME", "1h"),
             analysis_interval_minutes=int(os.getenv("ANALYSIS_INTERVAL_MINUTES", "60")),
         )
@@ -170,9 +187,10 @@ class Config:
 
     def __repr__(self) -> str:
         mode_emoji = "📝" if self.trading.mode == "paper" else "💰"
+        pairs_repr = f"DYNAMIC(top {self.trading.dynamic_pair_count})" if self.trading.is_dynamic_pairs else str(self.trading.pairs)
         return (
             f"Config({mode_emoji} mode={self.trading.mode}, "
-            f"pairs={self.trading.pairs}, "
+            f"pairs={pairs_repr}, "
             f"tf={self.trading.timeframe}, "
             f"risk={self.risk.risk_per_trade*100:.0f}%)"
         )
