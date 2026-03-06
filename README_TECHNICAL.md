@@ -61,8 +61,13 @@ Setiap sinyal teknikal dengan keyakinan >70% akan dikirim ke **Gemini 1.5 Flash*
 
 ### C. Daily Hunter & Elite Mode
 
-- **Hunter Mode**: Aktif jika target harian belum tercapai. Bot lebih agresif mencari sinyal.
-- **Elite Mode**: Aktif jika target harian tercapai. Bot menjadi sangat selektif (hanya mengambil sinyal A+) untuk menjaga profit yang sudah didapat.
+- **Hunter Mode (Target Force)**: Aktif jika target harian belum tercapai. Bot lebih agresif mencari sinyal dan melebarkan batas _Stop Loss_ hingga 25% untuk menahan fluktuasi _whipsaw_.
+- **Elite Mode**: Aktif jika target harian tercapai. Bot menjadi sangat selektif (hanya mengambil sinyal A+) dan memotong eksposur modal sebesar 50% untuk menjaga profit yang sudah didapat.
+
+### D. Drawdown Punishment (Risk Halving)
+
+- **Drawdown Limit**: Jika bot mengalami kerugian harian yang menyiasati batas _drawdown_ tertentu (contoh: loss >2%), sistem akan menghukum bot secara otomatis.
+- **Punishment Action**: Alokasi _Buying Power_ dipotong menjadi setengah (1/2) untuk sisa hari tersebut demi mencegah keruntuhan ekuitas akibat _Revenge Trading_.
 
 ---
 

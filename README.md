@@ -2,14 +2,19 @@
 
 **AI Trading Agent** otonom tingkat lanjut yang dikhususkan untuk memindai aktivitas _Smart Money_ (Whales) di bursa Kripto menggunakan Volume Profile Parabolik dan _Sentiment Analysis_ NLP. Proyek ini dibangun dengan prinsip _Clean Architecture_ dan berjalan sepenuhnya secara _Asynchronous_ untuk memindai ratusan pasar dalam hitungan milidetik.
 
-## ✨ Fitur Utama (Phase 0 - 4 Lengkap)
+## ✨ Fitur Utama (Phase 0 - 5 Lengkap)
 
-1.  **Omni-Scanner Asynchronous**: Memindai seluruh _pair_ di Indodax secara serentak (konkuren). Mampu mengabaikan koin berlikuiditas rendah secara otomatis (contoh: k Volume 24 Jam di bawah $50.000 USD).
+1.  **Omni-Scanner Asynchronous**: Memindai seluruh _pair_ di Indodax secara serentak (konkuren). Mampu mengabaikan koin berlikuiditas rendah secara otomatis (contoh: Volume 24 Jam di bawah $50.000 USD).
 2.  **Anti-Spoofing & Z-Score Tracker**: Tidak akan tertipu oleh _"Buy Wall"_ palsu di orderbook. Dynamic Z-Score hanya merespon transaksi _Whale_ asli yang memakan likuiditas di atas ambang batas standar deviasi historis.
-3.  **Trade Management (Pyramiding & Exhaustion)**:
+3.  **Whale Confidence Profiling (LLM Logic)**: Setiap penemuan _Volume Spike_ akan divalidasi dengan skor "Whale Confidence" (1-10) beserta penjelasan logis fundamental/teknikal dalam Bahasa Indonesia mengapa posisi tersebut berpotensi menguntungkan.
+4.  **Trade Management (Pyramiding & Exhaustion)**:
     - **Scale-In**: AI dapat membuka posisi hingga 3 lapis untuk aset yang sedang _profit_ (dengan resiko yang dibagi dua setiap masuk lapis baru).
     - **Volume Exhaustion Trailing**: Mampu menahan aset tanpa batas Take-Profit statis, lalu **Force Close** seketika saat terdeteksi _Whales_ mulai melakukan distribusi (jual massal).
-4.  **Macro Sentiment Veto (NLP)**: Mengambil berita kripto secara _real-time_ lewat API dan menganalisis polanya menggunakan `vaderSentiment`. Jika terpantau sentimen fundamental sangat buruk (krisis, hack), AI akan melakukan _Veto_ (HOLD) pada sinyal teknikal apapun untuk mencegah kerugian _black swan_.
+5.  **Dynamic Risk Punishment & Target Force**: AI bertindak adaptif terhadap performa hariannya:
+    - **Target Force**: Jika target profit harian (misal: 1%) belum tercapai, AI akan memberikan ruang _Stop Loss_ ekstra sebesar 25% agar posisi tidak mudah tersapu _whipsaw_ pasar yang bergejolak.
+    - **Drawdown Punishment**: Jika AI menyentuh batas kerugian harian (misal: rugi > 2%), alokasi modal otomatis dipotong separuh (50%) untuk melindungi ekuitas dari manuver balas dendam (_Revenge Trading_).
+6.  **Macro Sentiment Veto (NLP)**: Mengambil berita kripto secara _real-time_ lewat API dan menganalisis polanya menggunakan `vaderSentiment`. Jika terpantau sentimen fundamental sangat buruk (krisis, hack), AI akan melakukan _Veto_ (HOLD) pada sinyal teknikal apapun untuk mencegah kerugian _black swan_.
+7.  **Interactive React Web Dashboard**: Menyajikan antarmuka visual _real-time_ atas kinerja bot. Fitur lengkap mulai dari _Equity Curve_ dengan filter rentang waktu (Hari Ini, 7 Hari, 30 Hari, Semua), Riwayat Transaksi tertutup, Live Volume Feed penemuan Paus, hingga pantauan target harian dan _Unrealized PNL_.
 
 ---
 
