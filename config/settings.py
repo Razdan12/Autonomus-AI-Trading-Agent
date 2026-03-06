@@ -65,7 +65,7 @@ class TelegramConfig:
 @dataclass
 class AIConfig:
     gemini_api_key: str = ""
-    model_name: str = "gemini-1.5-flash"
+    model_name: str = "gemini-2.5-flash"
     enable_llm_audit: bool = True
 
 
