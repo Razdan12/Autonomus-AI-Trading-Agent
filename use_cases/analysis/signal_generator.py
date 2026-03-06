@@ -378,8 +378,13 @@ class SignalGenerator:
 
         # Apply Market Regime Adaptation
         if market_regime == "CHOPPY":
-            primary.confidence *= 0.5
-            primary.reason += " | 🌊 CHOPPY MARKET: Waspada sinyal palsu"
+            if volume_signal and volume_signal.whale_score >= 8:
+                primary.confidence *= 0.5
+                primary.reason += " | 🌊 CHOPPY MARKET: Waspada sinyal palsu, tapi Whale Score sangat tinggi (>=8)"
+            else:
+                primary.action = "HOLD"
+                primary.confidence *= 0.2
+                primary.reason = f"🚨 VETO CHOPPY AVOIDANCE: Pasar sedang Choppy dan volume Whale tidak cukup kuat ({volume_signal.whale_score if volume_signal else 0}/10). Menghindari Whipsaw || " + primary.reason
         elif market_regime == "VOLATILE":
             primary.reason += " | ⚡ VOLATILE MARKET: Perhatikan SL"
         elif market_regime == "TRENDING_BULL" and primary.action in ("BUY", "STRONG_BUY"):

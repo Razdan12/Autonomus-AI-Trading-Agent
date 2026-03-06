@@ -132,9 +132,21 @@ class RiskManager:
         # Calculate total cost
         cost = position_size * entry_price
 
-        # Ensure we have enough balance
-        if cost > equity * 0.95:  # Keep 5% reserve
-            position_size = (equity * 0.95) / entry_price
+        # ──── Capital Allocation Cap ────
+        # Limit maximum capital allowed per position so we don't go all-in on one coin
+        max_open = self.config.risk.max_open_positions
+        # E.g. If max_open is 3, one coin can consume at most ~33% of the total equity (with 5% total reserve)
+        max_allocation_pct = 0.95 / max_open if max_open > 0 else 0.95
+        max_cost_allowed = equity * max_allocation_pct
+        
+        # Ensure we don't spend more than the allocated pie slice
+        if cost > max_cost_allowed:
+            logger.info(
+                f"⚠️ Capital Limit Hit for {symbol}: Cost {cost:,.0f} IDR exceeds "
+                f"allowed slice {max_cost_allowed:,.0f} IDR ({max_allocation_pct*100:.1f}%). Sunat Position Size."
+            )
+            # Recalculate size and actual risk to fit max budget
+            position_size = max_cost_allowed / entry_price
             cost = position_size * entry_price
             risk_amount = position_size * sl_distance
 
