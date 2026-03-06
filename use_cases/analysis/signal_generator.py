@@ -249,7 +249,7 @@ class SignalGenerator:
                     symbol=symbol,
                     action="HOLD",
                     confidence=round(tech.confidence * 0.3, 2),
-                    reason=f"⚠️ VETO (USER RULE): Teknis {tech.trend} murni tanpa konfirmasi Volume Whale (Whale Confidence: 0/10) → HOLD. Sinyal teknikal diabaikan.",
+                    reason=f"⚠️ VETO (USER RULE): Teknis {tech.trend} murni tanpa konfirmasi Volume Whale (Whale Confidence: {volume.whale_score}/10) → HOLD. Sinyal teknikal diabaikan.",
                     technical=tech,
                     volume=volume,
                 )
@@ -258,10 +258,22 @@ class SignalGenerator:
                     symbol=symbol,
                     action="HOLD",
                     confidence=round(tech.confidence * 0.3, 2),
-                    reason=f"⚠️ VETO (USER RULE): Teknis {tech.trend} murni tanpa konfirmasi Volume Whale (Whale Confidence: 0/10) → HOLD. Sinyal teknikal diabaikan.",
+                    reason=f"⚠️ VETO (USER RULE): Teknis {tech.trend} murni tanpa konfirmasi Volume Whale (Whale Confidence: {volume.whale_score}/10) → HOLD. Sinyal teknikal diabaikan.",
                     technical=tech,
                     volume=volume,
                 )
+        
+        # WHALE SCORE VETO -> STRONGLY ENFORCE USER RULE
+        if volume.whale_score < 7:
+            # If Whale score is strictly below 7, it's not a whale, VETO it.
+            return TradingSignal(
+                symbol=symbol,
+                action="HOLD",
+                confidence=0.1,
+                reason=f"🚨 VETO WHALE SCORE: Skor volume Whale terlalu rendah ({volume.whale_score}/10). Sinyal dibatalkan (HOLD).",
+                technical=tech,
+                volume=volume,
+            )
 
         # Default fallback
         return TradingSignal(
@@ -351,9 +363,13 @@ class SignalGenerator:
         # Apply Target Profit (Minimum Profit Mode) logic
         if not daily_target_met:
             # Not yet met daily target -> AGGRESSIVE HUNTER MODE
-            # Boost confidence slightly to trigger more trades
-            primary.confidence = min(1.0, primary.confidence * 1.5)
-            primary.reason += " | 🎯 HUNTER MODE: Mengejar target harian"
+            # Boost confidence slightly to trigger more trades ONLY IF Whale is actually present
+            if volume_signal and volume_signal.whale_score >= 7:
+                primary.confidence = min(1.0, primary.confidence * 1.5)
+                primary.reason += " | 🎯 HUNTER MODE: Mengejar target harian (Whale Verified)"
+            else:
+                primary.reason += " | 🎯 HUNTER MODE: Aktif, tapi dibatalkan karena Whale Score lemah"
+
         else:
             # Target met -> RELAXED / ELITE MODE
             # Penalize confidence so only A+ setups generate trades

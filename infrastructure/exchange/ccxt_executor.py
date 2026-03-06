@@ -281,7 +281,33 @@ class OrderExecutor(IExecutor):
                         params=order_params
                     )
                 except __import__('ccxt').ExchangeError as e:
-                    logger.error(f"⚠️ Exchange rejected close for {symbol}, forcing DB close to prevent Zombie Order: {e}")
+                    error_msg = str(e).lower()
+                    if "insufficient balance" in error_msg:
+                        logger.warning(f"⚠️ Indodax rejected close for {symbol} due to insufficient balance. Fetching actual balance to retry...")
+                        try:
+                            # Usually symbol is "BTC/IDR", base is "BTC"
+                            base_coin = symbol.split('/')[0]
+                            balance = await self.market.exchange.fetch_balance()
+                            free_balance = balance.get(base_coin, {}).get("free", 0.0)
+                            
+                            if free_balance > 0:
+                                logger.info(f"🔄 Retrying close {symbol} with actual free balance: {free_balance} {base_coin} (Original target: {trade['amount']})")
+                                trade["amount"] = free_balance # Update the local trade dict to reflect the actual sold amount
+                                await self.market.exchange.create_order(
+                                    symbol=symbol,
+                                    type=order_type,
+                                    side=close_side,
+                                    amount=free_balance,
+                                    price=current_price,
+                                    params=order_params
+                                )
+                            else:
+                                logger.warning(f"⚠️ Actual free balance for {base_coin} is 0. Asset likely already sold elsewhere or stranded. Forcing DB close.")
+                        except Exception as retry_e:
+                            logger.error(f"❌ Failed to close {symbol} even after fetching manual balance: {retry_e}")
+                            return False
+                    else:
+                        logger.error(f"⚠️ Exchange rejected close for {symbol}, forcing DB close to prevent Zombie Order: {e}")
                 except Exception as e:
                     logger.error(f"❌ Network/Unknown error closing {symbol} on exchange (WILL RETRY NEXT TICK): {e}")
                     return False

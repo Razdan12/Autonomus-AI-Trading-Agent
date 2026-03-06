@@ -79,14 +79,24 @@ class VolumeAnalyzer:
         # 4. Confidence Score
         # High volume + strong one-sided imbalance = high confidence
         safe_min_usd = max(min_usd, 1.0)
-        volume_factor = min(1.0, total_usd / (safe_min_usd * 15))
+        
+        # Penalize confidence heavily if total volume is too low
+        if total_usd < min_usd * 2:
+            volume_factor = total_usd / (min_usd * 4) # Scale down massively if below threshold
+        else:
+            volume_factor = min(1.0, total_usd / (safe_min_usd * 15))
+            
         imbalance_factor = abs(imbalance_score)
         
         # Confidence is a blend of how much volume we saw and how one-sided it was
         confidence = (volume_factor * 0.4) + (imbalance_factor * 0.6)
         
         # Calculate Whale Score (1-10)
-        whale_score = max(1, min(10, int(confidence * 10))) if total_usd > 0 else 0
+        # Force a low whale score if volume is low, regardless of imbalance
+        if total_usd < min_usd:
+            whale_score = 1
+        else:
+            whale_score = max(1, min(10, int(confidence * 10))) if total_usd > 0 else 0
         
         # Build Indonesian Whale Reason
         flow_text = "Tekanan Beli (Net Inflow)" if net_flow == "ACCUMULATING" else ("Tekanan Jual (Net Outflow)" if net_flow == "DISTRIBUTING" else "Netral")
