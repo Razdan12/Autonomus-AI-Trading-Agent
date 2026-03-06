@@ -58,9 +58,9 @@ def api_volume_anomalies(limit: int = 20):
     return get_volume_anomalies(limit)
 
 @app.get("/api/equity", response_model=List[ChartDataPoint])
-def api_equity_curve():
+def api_equity_curve(days: int = None):
     """Get the historical equity curve data for charting."""
-    return get_equity_curve()
+    return get_equity_curve(days)
 
 @app.get("/api/candles/{symbol}", response_model=List[CandleResponse])
 def api_candles(symbol: str, timeframe: str = "1h", limit: int = 100):

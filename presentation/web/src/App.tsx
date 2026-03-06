@@ -99,18 +99,21 @@ function App() {
   const [tradeHistory, setTradeHistory] = useState<TradeHistory[]>([]);
   const [dailyTarget, setDailyTarget] = useState<DailyTarget | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('overview');
+  const [chartFilter, setChartFilter] = useState<'1' | '7' | '30' | 'all'>('1');
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
 
   useEffect(() => {
     const fetchData = async () => {
       try {
+        const equityUrl = chartFilter === 'all' ? `${API_BASE}/equity` : `${API_BASE}/equity?days=${chartFilter}`;
+
         const [portRes, posRes, anomRes, sigRes, eqRes, tradeRes, targetRes] = await Promise.all([
           axios.get(`${API_BASE}/portfolio`),
           axios.get(`${API_BASE}/positions`),
           axios.get(`${API_BASE}/volume`),
           axios.get(`${API_BASE}/signals`),
-          axios.get(`${API_BASE}/equity`),
+          axios.get(equityUrl),
           axios.get(`${API_BASE}/trades?limit=50`),
           axios.get(`${API_BASE}/daily-target`),
         ]);
@@ -133,7 +136,7 @@ function App() {
     fetchData();
     const interval = setInterval(fetchData, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [chartFilter]);
 
   const formatIDR = (val: number) =>
     new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val);
@@ -180,6 +183,18 @@ function App() {
 
   const targetCfg = getDailyTargetConfig(dailyTarget?.status || 'NO_TRADES');
   const equityIsZero = !portfolio || portfolio.total_equity === 0;
+
+  if (!portfolio) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-[#0b1120]">
+        <div className="flex flex-col items-center gap-4">
+          <AlertCircle className="w-12 h-12 text-[#ef4444]" />
+          <h2 className="text-xl font-bold text-gray-200">Gagal Memuat Data Dashboard</h2>
+          <p className="text-gray-500 text-sm">Cek koneksi ke server backend AI Trading.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0b1120] text-gray-100 font-sans">
@@ -335,9 +350,25 @@ function App() {
 
               {/* Equity Curve */}
               <div className="lg:col-span-2 glass-card px-6 py-5 rounded-2xl">
-                <div className="flex items-center gap-2 mb-5">
-                  <BarChart2 className="w-4 h-4 text-gray-400" />
-                  <h2 className="text-base font-bold text-white">Equity Curve</h2>
+                <div className="flex items-center justify-between mb-5">
+                  <div className="flex items-center gap-2">
+                    <BarChart2 className="w-4 h-4 text-gray-400" />
+                    <h2 className="text-base font-bold text-white">Equity Curve</h2>
+                  </div>
+                  <div className="flex gap-1 bg-gray-800/50 p-1 rounded-lg">
+                    {(['1', '7', '30', 'all'] as const).map((filter) => (
+                      <button
+                        key={filter}
+                        onClick={() => setChartFilter(filter)}
+                        className={`px-3 py-1 rounded text-[11px] font-medium transition-colors ${chartFilter === filter
+                          ? 'bg-[#3b82f6] text-white shadow-md shadow-[#3b82f6]/20'
+                          : 'text-gray-400 hover:text-gray-200 hover:bg-white/[0.05]'
+                          }`}
+                      >
+                        {filter === '1' ? 'Hari Ini' : filter === '7' ? '7 Hari' : filter === '30' ? '30 Hari' : 'Semua'}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <div className="h-[350px] w-full">
                   {equityData.length > 0 ? (

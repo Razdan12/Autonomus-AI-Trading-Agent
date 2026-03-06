@@ -1,6 +1,6 @@
 import sqlite3
 import os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any
 from presentation.api.models import (
     PortfolioSummaryResponse, PositionResponse, SignalResponse,
@@ -135,11 +135,21 @@ def get_volume_anomalies(limit: int = 10) -> List[VolumeAnomalyResponse]:
         ))
     return anomalies
 
-def get_equity_curve() -> List[ChartDataPoint]:
+def get_equity_curve(days: int = None) -> List[ChartDataPoint]:
     conn = get_db_connection()
     c = conn.cursor()
-    # Assuming the main loop records equity periodically
-    c.execute("SELECT snapshot_at, total_equity FROM portfolio_snapshots ORDER BY snapshot_at ASC")
+    
+    query = "SELECT snapshot_at, total_equity FROM portfolio_snapshots"
+    params = []
+    
+    if days is not None:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        query += " WHERE snapshot_at >= ?"
+        params.append(cutoff.isoformat())
+        
+    query += " ORDER BY snapshot_at ASC"
+    
+    c.execute(query, params)
     rows = c.fetchall()
     conn.close()
     
