@@ -29,7 +29,11 @@ class LLMStrategist:
         
         response = await self.client.generate_response(prompt)
         if not response:
-            return {"decision": "APPROVE", "reasoning": "LLM validation skipped/failed."}
+            logger.warning(f"⚠️ LLM Failsafe Activated for {signal.symbol}: Gemini API failed/timed out. Proceeding with technical & whale volume analysis only.")
+            return {
+                "decision": "APPROVE", 
+                "reasoning": "Sinyal disetujui secara teknis & volume whale (LLM offline). Market tetap dipantau oleh Risk Manager."
+            }
             
         return self._parse_llm_response(response)
         

@@ -1,5 +1,6 @@
 import aiohttp
 import json
+import asyncio
 from typing import Optional, Dict, Any
 from utils.logger import get_logger
 
@@ -33,20 +34,50 @@ class GeminiClient:
             }
         }
         
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(self.url, json=payload) as response:
-                    if response.status != 200:
+        max_retries = 3
+        retry_delay = 2  # base delay in seconds
+        
+        for attempt in range(max_retries + 1):
+            try:
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
+                    async with session.post(self.url, json=payload) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            try:
+                                return data["candidates"][0]["content"]["parts"][0]["text"]
+                            except (KeyError, IndexError) as e:
+                                logger.error(f"❌ Failed to parse Gemini response: {e}")
+                                return None
+                                
                         error_text = await response.text()
-                        logger.error(f"❌ Gemini API Error ({response.status}): {error_text}")
-                        return None
-                        
-                    data = await response.json()
-                    try:
-                        return data["candidates"][0]["content"]["parts"][0]["text"]
-                    except (KeyError, IndexError) as e:
-                        logger.error(f"❌ Failed to parse Gemini response: {e}")
-                        return None
-        except Exception as e:
-            logger.error(f"❌ Gemini Client Exception: {e}")
-            return None
+                        if response.status == 429:
+                            if attempt < max_retries:
+                                wait_time = retry_delay * (2 ** attempt)
+                                logger.warning(f"⚠️ Gemini API Quota Exceeded (429). Retrying in {wait_time}s... (Attempt {attempt+1}/{max_retries})")
+                                await asyncio.sleep(wait_time)
+                                continue
+                            else:
+                                logger.error(f"❌ Gemini API Quota Exceeded after {max_retries} retries. Proceeding without LLM.")
+                        elif response.status >= 500:
+                            if attempt < max_retries:
+                                wait_time = retry_delay * (2 ** attempt)
+                                logger.warning(f"⚠️ Gemini API Server Error ({response.status}). Retrying in {wait_time}s... (Attempt {attempt+1}/{max_retries})")
+                                await asyncio.sleep(wait_time)
+                                continue
+                            else:
+                                logger.error(f"❌ Gemini API Server Error ({response.status}) after {max_retries} retries.")
+                        else:
+                            logger.error(f"❌ Gemini API Error ({response.status}): {error_text}")
+                            return None
+                            
+            except Exception as e:
+                if attempt < max_retries:
+                    wait_time = retry_delay * (2 ** attempt)
+                    logger.warning(f"⚠️ Gemini Client Exception: {e}. Retrying in {wait_time}s... (Attempt {attempt+1}/{max_retries})")
+                    await asyncio.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(f"❌ Gemini Client Exception after {max_retries} retries: {e}")
+            
+        return None
+
