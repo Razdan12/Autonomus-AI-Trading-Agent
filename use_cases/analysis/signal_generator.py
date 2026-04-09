@@ -123,6 +123,18 @@ class SignalGenerator:
         """
         symbol = tech.symbol if tech else volume.symbol
 
+        # WHALE SCORE VETO -> STRONGLY ENFORCE USER RULE
+        if volume.whale_score < 7:
+            # If Whale score is strictly below 7, it's not a whale, VETO it.
+            return TradingSignal(
+                symbol=symbol,
+                action="HOLD",
+                confidence=0.1,
+                reason=f"🚨 VETO WHALE SCORE: Skor volume Whale terlalu rendah ({volume.whale_score}/10). Sinyal dibatalkan (HOLD).",
+                technical=tech,
+                volume=volume,
+            )
+
         # ──── ANTI-RETAIL-PANIC LOGIC ────
         # If volume accumulates but technical is bearish → Buy the dip if Whale is strong
         if tech and tech.trend == "BEARISH" and volume.net_flow == "ACCUMULATING":
@@ -279,17 +291,6 @@ class SignalGenerator:
                     volume=volume,
                 )
         
-        # WHALE SCORE VETO -> STRONGLY ENFORCE USER RULE
-        if volume.whale_score < 7:
-            # If Whale score is strictly below 7, it's not a whale, VETO it.
-            return TradingSignal(
-                symbol=symbol,
-                action="HOLD",
-                confidence=0.1,
-                reason=f"🚨 VETO WHALE SCORE: Skor volume Whale terlalu rendah ({volume.whale_score}/10). Sinyal dibatalkan (HOLD).",
-                technical=tech,
-                volume=volume,
-            )
 
         # Default fallback
         return TradingSignal(

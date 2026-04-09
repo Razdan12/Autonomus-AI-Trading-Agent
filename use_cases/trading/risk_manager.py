@@ -110,10 +110,10 @@ class RiskManager:
             take_profit = entry_price - (sl_distance * active_tp_rr)
 
         # Ensure stop loss is positive
-        if stop_loss <= 0:
+        if float(stop_loss) <= 0:
             return self._rejected_order(
                 symbol, side, entry_price,
-                f"Stop loss negatif: {stop_loss:.0f} (ATR terlalu besar)"
+                f"Stop loss negatif: {float(stop_loss):.0f} (ATR terlalu besar)"
             )
 
         # ──── Calculate Position Size ────
@@ -166,13 +166,13 @@ class RiskManager:
             symbol=symbol,
             side=side,
             entry_price=entry_price,
-            position_size=round(position_size, 8),
-            cost=round(cost, 2),
-            stop_loss=round(stop_loss, 2),
-            take_profit=round(take_profit, 2),
-            risk_amount=round(risk_amount, 2),
-            risk_percent=round(active_risk_pct * 100, 2),
-            rr_ratio=round(rr_ratio, 2),
+            position_size=float(format(float(position_size), ".8f")),
+            cost=float(format(float(cost), ".2f")),
+            stop_loss=float(format(float(stop_loss), ".2f")),
+            take_profit=float(format(float(take_profit), ".2f")),
+            risk_amount=float(format(float(risk_amount), ".2f")),
+            risk_percent=float(format(float(active_risk_pct * 100.0), ".2f")),
+            rr_ratio=float(format(float(rr_ratio), ".2f")),
             approved=True,
         )
 
@@ -327,12 +327,13 @@ class RiskManager:
             # Activate trailing only after 1× risk profit
             if risk > 0 and profit > risk:
                 new_sl = current_price - (atr * self.sl_multiplier)
-                if new_sl > current_sl:  # Only move UP
+                v_new_sl: float = float(new_sl)
+                if v_new_sl > current_sl:  # Only move UP
                     logger.info(
-                        f"📈 Trailing SL: {current_sl:,.0f} → {new_sl:,.0f} "
+                        f"📈 Trailing SL: {current_sl:,.0f} → {v_new_sl:,.0f} "
                         f"(profit: {profit:,.0f})"
                     )
-                    return round(new_sl, 2)
+                    return float(format(v_new_sl, ".2f"))
 
         elif side == "sell":
             profit = entry_price - current_price
@@ -340,12 +341,13 @@ class RiskManager:
 
             if risk > 0 and profit > risk:
                 new_sl = current_price + (atr * self.sl_multiplier)
-                if new_sl < current_sl:  # Only move DOWN
+                v_new_sl: float = float(new_sl)
+                if v_new_sl < current_sl:  # Only move DOWN
                     logger.info(
-                        f"📉 Trailing SL: {current_sl:,.0f} → {new_sl:,.0f} "
+                        f"📉 Trailing SL: {current_sl:,.0f} → {v_new_sl:,.0f} "
                         f"(profit: {profit:,.0f})"
                     )
-                    return round(new_sl, 2)
+                    return float(format(v_new_sl, ".2f"))
 
         return None
 
@@ -394,11 +396,12 @@ class RiskManager:
                 active_callback_pct = max(base_callback_pct, 0.015)
                 
             # Check for trigger based on dynamic callback
+            hp = float(highest_price) if highest_price is not None else float(entry_price)
             if side == "buy":
-                if current_price <= highest_price * (1 - active_callback_pct):
+                if current_price <= hp * (1.0 - active_callback_pct):
                     return f"DYNAMIC_TRAILING_TP: Profit {profit_pct*100:.2f}% dropped {active_callback_pct*100:.2f}% from peak"
             elif side == "sell":
-                if current_price >= highest_price * (1 + active_callback_pct):
+                if current_price >= hp * (1.0 + active_callback_pct):
                     return f"DYNAMIC_TRAILING_TP: Profit {profit_pct*100:.2f}% dropped {active_callback_pct*100:.2f}% from peak"
                     
         return None

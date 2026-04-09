@@ -6,7 +6,7 @@ Analyzes Indodax orderbook imbalances and massive single trades using Dynamic Z-
 import time
 import numpy as np
 from collections import deque
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any, cast
 from datetime import datetime, timedelta
 
 from config.settings import Config
@@ -41,7 +41,7 @@ class VolumeTracker:
                 return # Skip scanning
             else:
                 logger.info(f"✅ SPOOFING PENALTY ENDED: {symbol} is removed from blacklist.")
-                del self.spoof_blacklist[symbol]
+                self.spoof_blacklist.pop(symbol, None)
 
         await self._check_large_trades(symbol)
         await self._check_orderbook_walls(symbol)
@@ -50,25 +50,29 @@ class VolumeTracker:
         """Fetch recent trades and flag anomalies using Dynamic Z-Score."""
         try:
             trades = await self.market.fetch_trades(symbol, limit=100)
-            if not trades or len(trades) < 10:
+            trades_list = list(trades)
+            if not trades_list or len(trades_list) < 10:
                 return
 
             # Extract costs directly in USD
-            costs_usd = [(t.get("cost", 0) / 16000) for t in trades]
+            costs_usd = [float(t.get("cost", 0)) / 16000.0 for t in trades_list]
             
             # Calculate Dynamic Z-Score Base
-            mean_vol = np.mean(costs_usd)
-            std_vol = np.std(costs_usd)
+            mean_vol = float(np.mean(costs_usd))
+            std_vol = float(np.std(costs_usd))
             if std_vol == 0:
                 std_vol = 1.0 # Prevent division by zero
                 
             min_usd = self.config.volume_anomaly.min_usd_value
             z_threshold = self.config.volume_anomaly.z_score_threshold
 
-            logged_spikes = 0
-            for t, cost_usd in zip(trades, costs_usd):
+            logged_spikes: int = 0
+            # Use simple loop to avoid zip issues with strict type checker
+            for i in range(len(trades_list)):
+                t = trades_list[i]
+                cost_usd = float(costs_usd[i])
                 # Calculate Z-Score for this specific trade
-                z_score = (cost_usd - mean_vol) / std_vol
+                z_score = float((cost_usd - mean_vol) / std_vol)
                 
                 # USER RULE: Must have >3x volume spike
                 volume_multiplier = cost_usd / mean_vol if mean_vol > 0 else 0
@@ -88,9 +92,10 @@ class VolumeTracker:
                     # Check if already saved (basic deduplication on timestamp/amount)
                     # We rely on DB or analysis layer to deduplicate if polled frequently.
                     self.db.save_volume_anomaly(event)
-                    if logged_spikes < 3:
-                        logger.info(f"🚨 WHALE TRADE [{symbol}]: {event['side']} ${cost_usd:,.0f} (Z-Score: {z_score:.1f})")
-                        logged_spikes += 1
+                    v_logged: int = int(cast(Any, logged_spikes))
+                    if v_logged < 3:
+                        logger.info(f"🚨 WHALE TRADE [{symbol}]: {event['side']} ${float(cost_usd):,.0f} (Z-Score: {float(z_score):.1f})")
+                        logged_spikes = v_logged + 1
 
         except Exception as e:
             logger.error(f"Failed to scan large trades for {symbol}: {e}")
@@ -136,6 +141,7 @@ class VolumeTracker:
                     # If we don't see a recent giant sell anomaly, it's a spoof.
                     recent_anomalies = self.db.get_volume_anomalies(symbol, now_ms - 10000)
                     recent_sells = [a for a in recent_anomalies if a['side'] == 'sell' and a['amount_usd'] > min_usd]
+                    recent_sells = [a for a in recent_anomalies if a['side'] == 'sell' and float(a['amount_usd']) > float(min_usd)]
                     
                     if not recent_sells:
                         logger.warning(f"⚠️ SPOOFING DETECTED! {symbol} Buy wall of ${last_state['bid_vol']:,.0f} vanished.")
@@ -146,16 +152,16 @@ class VolumeTracker:
                             "anomaly_type": "spoofing_trap",
                             "side": "buy",
                             "amount": 0,
-                            "price": last_state['bid_price'],
-                            "amount_usd": last_state['bid_vol'],
+                            "price": float(last_state['bid_price']),
+                            "amount_usd": float(last_state['bid_vol']),
                             "timestamp": now_ms
                         })
                         return # Stop processing
                         
                 # Check Ask Spoofing
-                if last_state['ask_vol'] > min_usd * 3 and ask_vol_usd < last_state['ask_vol'] * 0.2:
+                if float(last_state['ask_vol']) > float(min_usd * 3) and float(ask_vol_usd) < float(last_state['ask_vol'] * 0.2):
                     recent_anomalies = self.db.get_volume_anomalies(symbol, now_ms - 10000)
-                    recent_buys = [a for a in recent_anomalies if a['side'] == 'buy' and a['amount_usd'] > min_usd]
+                    recent_buys = [a for a in recent_anomalies if a['side'] == 'buy' and float(a['amount_usd']) > float(min_usd)]
                     
                     if not recent_buys:
                         logger.warning(f"⚠️ SPOOFING DETECTED! {symbol} Sell wall of ${last_state['ask_vol']:,.0f} vanished.")
@@ -166,8 +172,8 @@ class VolumeTracker:
                             "anomaly_type": "spoofing_trap",
                             "side": "sell",
                             "amount": 0,
-                            "price": last_state['ask_price'],
-                            "amount_usd": last_state['ask_vol'],
+                            "price": float(last_state['ask_price']),
+                            "amount_usd": float(last_state['ask_vol']),
                             "timestamp": now_ms
                         })
                         return # Stop processing
@@ -177,12 +183,12 @@ class VolumeTracker:
                 "ts": now_ms,
                 "bid_vol": bid_vol_usd,
                 "ask_vol": ask_vol_usd,
-                "bid_price": max_bid[0],
-                "ask_price": max_ask[0]
+                "bid_price": float(max_bid[0]),
+                "ask_price": float(max_ask[0])
             })
             
             # Save valid massive walls as valid anomalies
-            if bid_vol_usd >= min_usd * 2: # Walls need to be thicker
+            if float(bid_vol_usd) >= float(min_usd * 2): # Walls need to be thicker
                 event = {
                     "symbol": symbol,
                     "anomaly_type": "orderbook_wall",

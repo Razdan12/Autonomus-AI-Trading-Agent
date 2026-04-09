@@ -205,7 +205,10 @@ class SqliteRepository(IDatabase):
                 signal.get("ai_decision"), signal.get("ai_reasoning"),
                 now
             ))
-            return cursor.lastrowid
+            last_id = cursor.lastrowid
+            if last_id is None:
+                raise Exception("Failed to save signal: no lastrowid")
+            return int(last_id)
 
     def get_recent_signals(self, limit: int = 10) -> List[Dict]:
         """Get the most recent signals."""
@@ -236,7 +239,10 @@ class SqliteRepository(IDatabase):
                 trade.get("status", "open"), trade.get("mode", "paper"),
                 trade.get("signal_id"), trade.get("reasoning", ""), datetime.now(timezone.utc).isoformat()
             ))
-            return cursor.lastrowid
+            last_id = cursor.lastrowid
+            if last_id is None:
+                raise Exception("Failed to save trade: no lastrowid")
+            return int(last_id)
 
     def close_trade(self, trade_id: int, close_price: float, reason: str):
         """Close a trade with final P&L calculation."""

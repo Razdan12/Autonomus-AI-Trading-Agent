@@ -1,12 +1,21 @@
 import sqlite3
 import os
 from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Any
-from presentation.api.models import (
-    PortfolioSummaryResponse, PositionResponse, SignalResponse,
-    VolumeAnomalyResponse, ChartDataPoint, CandleResponse,
-    TradeHistoryResponse, DailyTargetResponse
-)
+from typing import List, Dict, Any, Optional, Union, cast
+from fastapi import APIRouter, Depends, HTTPException, Query
+try:
+    from .models import (
+        PortfolioSummaryResponse, PositionResponse, SignalResponse,
+        VolumeAnomalyResponse, ChartDataPoint, CandleResponse,
+        TradeHistoryResponse, DailyTargetResponse
+    )
+except ImportError:
+    from presentation.api.models import (
+        PortfolioSummaryResponse, PositionResponse, SignalResponse,
+        VolumeAnomalyResponse, ChartDataPoint, CandleResponse,
+        TradeHistoryResponse, DailyTargetResponse
+    )
+from infrastructure.storage.sqlite_repository import SqliteRepository
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "trading_agent.db")
 
@@ -135,7 +144,7 @@ def get_volume_anomalies(limit: int = 10) -> List[VolumeAnomalyResponse]:
         ))
     return anomalies
 
-def get_equity_curve(days: int = None) -> List[ChartDataPoint]:
+def get_equity_curve(days: Optional[int] = None) -> List[ChartDataPoint]:
     conn = get_db_connection()
     c = conn.cursor()
     
@@ -153,10 +162,11 @@ def get_equity_curve(days: int = None) -> List[ChartDataPoint]:
     rows = c.fetchall()
     conn.close()
     
+    raw_results: Any = rows
     return [ChartDataPoint(
-        time=r['snapshot_at'],
-        value=r['total_equity']
-    ) for r in rows]
+        time=str(r['snapshot_at']),
+        value=float(format(float(r['total_equity']), ".1f"))
+    ) for r in raw_results]
 
 def get_latest_candles(symbol: str, timeframe: str = "1h", limit: int = 100) -> List[CandleResponse]:
     conn = get_db_connection()
@@ -181,7 +191,8 @@ def get_latest_candles(symbol: str, timeframe: str = "1h", limit: int = 100) -> 
         if isinstance(t_ms, str):
             t_iso = t_ms
         else:
-            t_iso = datetime.fromtimestamp(t_ms/1000.0).isoformat()
+            ts_val = float(cast(Any, t_ms)) if t_ms is not None else 0.0
+            t_iso = datetime.fromtimestamp(ts_val/1000.0).isoformat()
             
         candles.append(CandleResponse(
             timestamp=t_iso,
@@ -219,7 +230,8 @@ def get_trade_history(limit: int = 50) -> List[TradeHistoryResponse]:
             try:
                 opened = datetime.fromisoformat(r['opened_at'].replace('Z', '+00:00'))
                 closed = datetime.fromisoformat(r['closed_at'].replace('Z', '+00:00'))
-                duration_minutes = round((closed - opened).total_seconds() / 60, 1)
+                raw_duration = float((closed - opened).total_seconds()) / 60.0
+                duration_minutes = float(format(float(raw_duration), ".1f"))
             except Exception:
                 duration_minutes = None
 
@@ -297,13 +309,21 @@ def get_daily_target_status() -> DailyTargetResponse:
 
     progress_pct = min(100.0, (realized_pnl_today / target_idr * 100) if target_idr > 0 else 0.0)
 
+    tp_pct = float(target_pct)
+    tp_idr = float(target_idr)
+    pnl_today = float(realized_pnl_today)
+    prog_pct = float(progress_pct)
+    dd_pct = float(daily_drawdown_pct)
+    dd_limit = float(drawdown_limit_pct)
+    eq_val = float(equity)
+
     return DailyTargetResponse(
-        target_pct=round(target_pct, 2),
-        target_idr=round(target_idr, 2),
-        realized_pnl_today=round(realized_pnl_today, 2),
-        progress_pct=round(progress_pct, 2),
+        target_pct=float(format(float(tp_pct), ".2f")),
+        target_idr=float(format(float(tp_idr), ".2f")),
+        realized_pnl_today=float(format(float(pnl_today), ".2f")),
+        progress_pct=float(format(float(prog_pct), ".2f")),
         status=status,
-        daily_drawdown_pct=round(daily_drawdown_pct, 2),
-        drawdown_limit_pct=round(drawdown_limit_pct, 2),
-        equity=round(equity, 2),
+        daily_drawdown_pct=float(format(float(dd_pct), ".2f")),
+        drawdown_limit_pct=float(format(float(dd_limit), ".2f")),
+        equity=float(format(float(eq_val), ".2f")),
     )

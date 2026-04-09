@@ -18,7 +18,7 @@ if 'total_equity' in df.columns:
         print(f"\nBiggest drop recorded at {drop_time}: {biggest_drop['equity_diff']} IDR")
         
         # Let's see some closed trades overall
-        trades = pd.read_sql_query("SELECT id, symbol, side, status, realized_pnl, created_at, closed_at FROM trades WHERE status='CLOSED' ORDER BY closed_at DESC LIMIT 10", conn)
+        trades = pd.read_sql_query("SELECT id, symbol, side, status, pnl, opened_at, closed_at FROM trades WHERE status='closed' ORDER BY closed_at DESC LIMIT 10", conn)
         print("\nRecent 10 CLOSED trades:")
         print(trades)
     else:

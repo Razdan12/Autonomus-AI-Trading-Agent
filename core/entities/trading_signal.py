@@ -26,18 +26,32 @@ class TradingSignal:
     ai_reasoning: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        res = {
             "symbol": self.symbol,
             "action": self.action,
             "confidence": self.confidence,
             "reason": self.reason,
-            "technical_trend": self.technical.trend if self.technical else None,
-            "technical_momentum": self.technical.momentum if self.technical else None,
-            "technical_confidence": self.technical.confidence if self.technical else None,
-            "volume_flow": self.volume.net_flow if self.volume else None,
-            "volume_intensity": self.volume.intensity if self.volume else None,
-            "volume_confidence": self.volume.confidence if self.volume else None,
+            "technical_trend": None,
+            "technical_momentum": None,
+            "technical_confidence": None,
+            "volume_flow": None,
+            "volume_intensity": None,
+            "volume_confidence": None,
             "combined_action": self.action,
             "combined_confidence": self.confidence,
             "timeframes_aligned": self.timeframes_aligned,
         }
+        
+        tech = self.technical
+        if tech:
+            res["technical_trend"] = tech.trend
+            res["technical_momentum"] = tech.momentum
+            res["technical_confidence"] = tech.confidence
+            
+        vol = self.volume
+        if vol:
+            res["volume_flow"] = vol.net_flow
+            res["volume_intensity"] = vol.intensity
+            res["volume_confidence"] = vol.confidence
+            
+        return res
